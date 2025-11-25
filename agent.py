@@ -21,25 +21,6 @@ def analyze_task(decoded_html: str):
         return json.loads(content.strip())
     except: return None
 
-def sanitize_code(code: str):
-    """
-    Force-cleans the code to prevent LLM stupidity.
-    """
-    # 1. Remove network libraries
-    code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
-    code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
-    
-    # 2. Force Synchronous (Remove async/await)
-    code = code.replace("async def ", "def ")
-    code = code.replace("await ", "")
-    
-    # 3. Remove specific hallucinated function calls if found
-    # (Safety measure against demo2_key if the math numbers aren't there)
-    if "7919" not in code and "demo2_key" in code:
-        code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
-
-    return code
-
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     prompt = f"""
     You are a Python Expert. Write a Python script to calculate the answer.
@@ -47,27 +28,41 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     QUESTION: {question}
     Student Email: "{STUDENT_EMAIL}"
     
-    --- DATA / SCRIPTS (Source of Truth) ---
+    --- DATA / SCRIPTS / TRANSCRIPTS ---
     {file_summary}
     
     --- PAGE CONTENT ---
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **SCENARIO A (Anything):** If JSON sample says "answer": "anything", write: `solution = "anything you want"`
+    1. **IMPORTS:** You can use `pandas`, `numpy`, `scikit-learn`, `matplotlib.pyplot`, `seaborn`.
     
-    2. **SCENARIO B (Secret Code):** - Read the JS in "IMPORTED FILE". 
-       - Translate it to Python using `hashlib`.
-       - **DO NOT** use `async` or `await`. Write standard Python functions.
-       - **DO NOT** use `demo2_key` or `7919` unless you see them in the text above. (If `utils.js` is just sha1, then just do sha1).
+    2. **SCENARIO: VISUALIZATION (Charts/Plots):**
+       - If asked to plot/visualize:
+         1. Create plot with `plt.figure()`.
+         2. Save to buffer:
+            ```python
+            import io, base64
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png')
+            buf.seek(0)
+            solution = "data:image/png;base64," + base64.b64encode(buf.read()).decode('utf-8')
+            ```
     
-    3. **SCENARIO C (Audio/CSV):**
-       - Read "AUDIO TRANSCRIPT" for the rule.
-       - Parse "CSV CONTENT".
-       - Calculate result.
-       - `solution = int(result)` (Ensure standard python int).
+    3. **SCENARIO: ANALYSIS / ML:**
+       - If asked for clustering/regression, use `sklearn`.
+       - Example: `from sklearn.linear_model import LinearRegression`.
+    
+    4. **SCENARIO: SECRET CODE (JS Logic):**
+       - Translate JS logic 1:1. Do NOT use `demo2_key` or `7919` unless seen in text.
+    
+    5. **SCENARIO: CSV/AUDIO:**
+       - Parse CSV, apply rules from Audio transcript.
+       - **CRITICAL:** For simple numbers, `solution = int(result)`.
 
-    4. **OUTPUT:** Return ONLY the Python code block.
+    6. **OUTPUT:**
+       - Define variable `solution`.
+       - Return ONLY the Python code block.
     """
     
     try:
@@ -79,14 +74,9 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         # Extract Code
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
+        print(f"DEBUG: Generated Python Code:\n{code}")
         
-        # --- FORCE SANITIZATION ---
-        print("DEBUG: Original Code generated. Sanitizing...")
-        code = sanitize_code(code)
-        print(f"DEBUG: Sanitized Python Code:\n{code}")
-        # --------------------------
-        
-        # Shared Scope
+        # Execute
         scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL}
         exec(code, scope, scope)
         
