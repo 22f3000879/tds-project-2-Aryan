@@ -7,15 +7,13 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 def analyze_task(decoded_html: str):
     """
-    Analyzes the task. 
+    Analyzes the task.
     """
     prompt = f"""
     You are a scraper parser. Extract strictly valid JSON from this content.
     
     Keys: 
     - "question": Extract the EXACT instruction text from the page. 
-       Examples: "POST this JSON to /submit", "What is the sum?", "Get the secret code".
-       Do NOT invent a question. Use the text present on the page.
     - "submit_url": The URL to POST the answer to.
     - "file_url": Look for "Download" links or "Scrape" links (hrefs). If none, null.
 
@@ -40,24 +38,26 @@ def analyze_task(decoded_html: str):
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     """
-    Solves the question. 
+    Solves the question.
     """
     prompt = f"""
     You are a Data Science assistant. 
     
     QUESTION: {question}
     
-    --- PAGE CONTENT ---
-    {page_content[:10000]}
-    
-    --- SCRAPED DATA / FILE CONTENT ---
+    --- SCRAPED DATA / FILE CONTENT (THE ANSWER IS HERE) ---
     {file_summary}
     
-    INSTRUCTIONS:
-    1. If the question asks to "POST this JSON" or provides a JSON sample, extract the value of the "answer" field from that sample.
-       (Example: If JSON says "answer": "anything", return "anything").
-    2. If the question asks to find a "secret code" or "key", look for "The secret code is [XYZ]" in the Page or Scraped Data.
-    3. Return strictly JSON: {{ "answer": "YOUR_ANSWER" }}
+    --- PAGE CONTENT (Instructions & Samples) ---
+    {page_content[:10000]}
+    
+    CRITICAL INSTRUCTIONS:
+    1. **PRIORITIZE THE SCRAPED DATA.** The Page Content often contains a *Sample JSON* with placeholders like "your secret" or "12345". **IGNORE THESE PLACEHOLDERS.**
+    2. Look inside the **SCRAPED DATA** section above for the real answer.
+       - Look for: "The secret code is [CODE]"
+       - Look for: "Key: [CODE]"
+    3. If the question asks to "POST this JSON" (Step 1), then you can use the sample data.
+    4. Return strictly JSON: {{ "answer": "YOUR_ANSWER" }}
     """
     
     try:
