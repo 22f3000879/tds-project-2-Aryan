@@ -14,11 +14,10 @@ async def run_quiz_process(start_url: str):
     current_url = start_url
     step_count = 0
     
-    # Run for a max of 10 steps to prevent infinite loops during testing
     while current_url and step_count < 10:
         print(f"--- STEP {step_count + 1} processing {current_url} ---")
         
-        # 1. Get the Hidden Question
+        # 1. Get the Hidden Question AND Page Content
         decoded_text = await fetch_and_decode_page(current_url)
         
         # 2. Parse it with LLM
@@ -33,15 +32,14 @@ async def run_quiz_process(start_url: str):
         file_summary = "No files."
         if task_data.get("file_url"):
             f_url = task_data["file_url"]
-            # Handle relative URLs for files
             if not f_url.startswith("http"):
                 f_url = urljoin(current_url, f_url)
             
             print(f"Downloading file: {f_url}")
             file_summary = parse_file_content(f_url)
 
-        # 4. Solve
-        answer = solve_question(task_data["question"], file_summary)
+        # 4. Solve (UPDATED: Passing decoded_text as the 3rd argument)
+        answer = solve_question(task_data["question"], file_summary, decoded_text)
         print(f"Calculated Answer: {answer}")
         
         # 5. Submit
@@ -54,10 +52,8 @@ async def run_quiz_process(start_url: str):
         
         submit_url = task_data["submit_url"]
         
-        # --- FIX: Handle Relative Submit URLs ---
         if submit_url and not submit_url.startswith("http"):
             submit_url = urljoin(current_url, submit_url)
-        # ----------------------------------------
         
         try:
             print(f"Submitting to {submit_url}...")
@@ -67,13 +63,11 @@ async def run_quiz_process(start_url: str):
                 try:
                     result = resp.json()
                 except:
-                    # If response isn't JSON, print text for debugging
                     print(f"Non-JSON response: {resp.text}")
                     break
 
                 print(f"Submission Result: {result}")
                 
-                # 6. Check for next URL
                 if result.get("correct") and result.get("url"):
                     current_url = result["url"]
                     step_count += 1
@@ -82,7 +76,7 @@ async def run_quiz_process(start_url: str):
                      break
                 else:
                     print(f"Wrong Answer. Reason: {result.get('reason')}")
-                    # Optional: specific retry logic could go here
+                    # If we fail, we stop to prevent infinite spamming
                     break
                     
         except Exception as e:
