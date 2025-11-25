@@ -15,9 +15,11 @@ async def fetch_and_decode_page(url: str):
         response.raise_for_status()
         html = response.text
 
-    # 1. Regex to find: atob("BASE64_STRING")
-    # This looks for the pattern inside the <script> tags
-    pattern = r'atob\s*\(\s*[\'"]([A-Za-z0-9+/=]+)[\'"]\s*\)'
+    # --- THE FIX IS HERE ---
+    # We added ` (backtick) to the character class inside the regex.
+    # Pattern: atob( QUOTEMARK (base64) QUOTEMARK )
+    pattern = r'atob\s*\(\s*[`\'"]([A-Za-z0-9+/=]+)[`\'"]\s*\)'
+    
     match = re.search(pattern, html)
 
     if match:
@@ -31,6 +33,7 @@ async def fetch_and_decode_page(url: str):
             print(f"Error decoding Base64: {e}")
             return html # Fallback to raw HTML
     
+    # If no match found, return raw HTML (maybe it wasn't hidden?)
     return html
 
 def parse_file_content(file_url: str):
