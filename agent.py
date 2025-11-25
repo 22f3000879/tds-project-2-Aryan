@@ -7,19 +7,17 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 def analyze_task(decoded_html: str):
     """
-    Analyzes the task. Now explicitly looks for scraping links.
+    Analyzes the task. 
     """
     prompt = f"""
     You are a scraper parser. Extract strictly valid JSON from this content.
     
     Keys: 
-    - "question": The task (e.g. "Get the secret code").
-    - "submit_url": The POST URL.
-    - "file_url": Look for ANY data link. This includes:
-         1. "Download" links (PDF/CSV)
-         2. "Scrape" links (e.g. "Scrape data from this page")
-         3. "Source" links
-         If multiple exist, pick the one most likely to contain the answer data. If none, null.
+    - "question": Extract the EXACT instruction text from the page. 
+       Examples: "POST this JSON to /submit", "What is the sum?", "Get the secret code".
+       Do NOT invent a question. Use the text present on the page.
+    - "submit_url": The URL to POST the answer to.
+    - "file_url": Look for "Download" links or "Scrape" links (hrefs). If none, null.
 
     OUTPUT RAW JSON ONLY.
     
@@ -49,15 +47,16 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     QUESTION: {question}
     
-    --- PAGE CONTENT (The answer might be here) ---
+    --- PAGE CONTENT ---
     {page_content[:10000]}
     
-    --- SCRAPED DATA / FILE CONTENT (The answer is LIKELY here) ---
+    --- SCRAPED DATA / FILE CONTENT ---
     {file_summary}
     
     INSTRUCTIONS:
-    1. The answer is usually in the SCRAPED DATA section.
-    2. Look for patterns like "The secret code is [XYZ]", "Key: [XYZ]".
+    1. If the question asks to "POST this JSON" or provides a JSON sample, extract the value of the "answer" field from that sample.
+       (Example: If JSON says "answer": "anything", return "anything").
+    2. If the question asks to find a "secret code" or "key", look for "The secret code is [XYZ]" in the Page or Scraped Data.
     3. Return strictly JSON: {{ "answer": "YOUR_ANSWER" }}
     """
     
