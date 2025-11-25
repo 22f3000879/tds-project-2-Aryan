@@ -54,17 +54,16 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **IDENTIFY ENTRY POINT:** Look at the "IMPORTED FILE" (e.g., `demo-scrape.js`).
-       - If it says `const code = await emailNumber()`, then your Python script MUST define `email_number` and call `solution = email_number(email)`.
-    2. **NO HALLUCINATIONS:**
-       - Do **NOT** invent functions like `demo2_key` or `key_generator` unless they literally appear in the text.
-       - Do **NOT** add math (like `* 7919`) unless it is literally in the text.
-    3. **TRANSLATE LOGIC 1:1:**
-       - Open the "NESTED IMPORT" (e.g., `utils.js`).
-       - Read the logic inside `emailNumber`.
-       - Implement that EXACT logic in Python.
-    4. **STEP 1 HANDLING:** If the question is "POST this JSON", set `solution = "anything"`.
-    5. **OUTPUT:** Return ONLY the Python code block.
+    1. **NO NETWORK CALLS:** Do NOT use `requests`. Calculate everything locally.
+    2. **TRANSLATE LOGIC:** - Read the JavaScript functions (e.g., `emailNumber`, `sha1`).
+       - Implement the EXACT logic in Python.
+       - Use `hashlib` for hashing.
+    3. **SYNCHRONOUS ONLY:** - Do **NOT** use `async def` or `await`. 
+       - Python's `hashlib` is synchronous. Just write normal functions.
+    4. **STEP 1 SPECIAL RULE:** - If the question asks to "POST this JSON", set `solution = "anything you want"`.
+    5. **OUTPUT:**
+       - Define a variable `solution` with the final answer (String or Number).
+       - Return ONLY the Python code block.
     """
     
     try:
@@ -92,6 +91,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         }
         
         try:
+            # Execute the code
             exec(code, execution_scope, execution_scope)
         except Exception as e:
             print(f"Execution Error: {e}")
