@@ -4,6 +4,8 @@ from config import OPENAI_API_KEY, OPENAI_MODEL
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# In agent.py
+
 def analyze_task(decoded_html: str):
     """
     Step 1: Look at the decoded HTML and extract the structure.
@@ -29,11 +31,25 @@ def analyze_task(decoded_html: str):
         )
         content = response.choices[0].message.content.strip()
         
-        # Clean up markdown if LLM adds it
-        content = content.replace("```json", "").replace("```", "").strip()
-        return json.loads(content)
+        # --- ROBUST JSON CLEANING START ---
+        # 1. Find the first '{'
+        start_index = content.find("{")
+        # 2. Find the last '}'
+        end_index = content.rfind("}")
+        
+        if start_index != -1 and end_index != -1:
+            # Slice strictly between { and }
+            json_str = content[start_index : end_index + 1]
+            return json.loads(json_str)
+        else:
+            print(f"No JSON found in LLM response: {content}")
+            return None
+        # --- ROBUST JSON CLEANING END ---
+
     except Exception as e:
         print(f"Parse Error: {e}")
+        # Print the raw content to see what went wrong
+        print(f"Raw LLM Output: {content}") 
         return None
 
 def solve_question(question: str, file_summary: str):
