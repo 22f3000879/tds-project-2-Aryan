@@ -1,31 +1,3 @@
-import json
-import re
-import traceback
-from openai import OpenAI
-from config import OPENAI_API_KEY, OPENAI_MODEL, STUDENT_EMAIL
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-def analyze_task(decoded_html: str):
-    prompt = f"""
-    You are a scraper parser. Extract strictly valid JSON.
-    Keys: "question", "submit_url", "file_url".
-    CONTENT:
-    {decoded_html[:15000]}
-    """
-    try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        content = response.choices[0].message.content.strip()
-        if "```" in content:
-            content = content.split("```")[1].replace("json", "")
-        return json.loads(content.strip())
-    except:
-        return None
-
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     """
     Solves the question by generating and EXECUTING Python code.
@@ -43,15 +15,11 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **NO NETWORK CALLS:** Do NOT use `requests`, `urllib`, or any network library. You are a calculator.
-    2. **NO HALLUCINATIONS:** Only implement logic found in the provided "IMPORTED FILE" or "NESTED IMPORT" sections. Do not invent functions like "demo2_key" unless they are in the text.
-    3. **TRANSLATE JS TO PYTHON:**
-       - Look for the main function called in the JS (e.g., `await emailNumber()`).
-       - Find that function's definition in the imported files.
-       - Translate that SPECIFIC logic (math, string slicing, sha1) into Python.
-       - If the JS imports `sha1` from `utils.js`, write a Python `sha1` function.
-    4. **STEP 1 HANDLING:** If the question is just "POST this JSON" with no math, just write: `solution = "anything"`
-    5. **OUTPUT:**
+    1. **NO NETWORK CALLS:** Do NOT use `requests`. Calculate everything locally.
+    2. **TRANSLATE LOGIC:** - Read the JavaScript functions in the provided text.
+       - Implement the EXACT SAME logic in Python.
+       - If the JS does `(x * 7919) % 100`, your Python must do `(x * 7919) % 100`.
+    3. **OUTPUT:**
        - Define a variable `solution` with the final answer.
        - Return ONLY the Python code block.
     """
@@ -73,18 +41,25 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
             
         print(f"DEBUG: Generated Python Code:\n{code}")
         
-        # Execute Code
-        local_scope = {"email": STUDENT_EMAIL}
+        # --- THE FIX: SHARED SCOPE ---
+        # We create ONE dictionary for both globals and locals.
+        # This allows functions to call each other.
+        execution_scope = {
+            "__builtins__": __builtins__,
+            "import": __import__,
+            "email": STUDENT_EMAIL
+        }
         
         try:
-            exec(code, {"__builtins__": __builtins__, "import": __import__}, local_scope)
+            # Pass execution_scope as BOTH globals and locals
+            exec(code, execution_scope, execution_scope)
         except Exception as e:
             print(f"Execution Error: {e}")
             traceback.print_exc()
             return "Error executing code"
             
         # Retrieve Solution
-        answer = local_scope.get("solution")
+        answer = execution_scope.get("solution")
         print(f"DEBUG: Execution Result (solution): {answer}")
         
         return answer
