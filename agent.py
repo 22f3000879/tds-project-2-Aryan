@@ -1,3 +1,42 @@
+import json
+import re
+import traceback
+from openai import OpenAI
+from config import OPENAI_API_KEY, OPENAI_MODEL, STUDENT_EMAIL
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+def analyze_task(decoded_html: str):
+    """
+    Analyzes the task to extract the question and URLs.
+    """
+    prompt = f"""
+    You are a scraper parser. Extract strictly valid JSON from this content.
+    
+    Keys: 
+    - "question": Extract the EXACT instruction text from the page. 
+    - "submit_url": The URL to POST the answer to.
+    - "file_url": Look for "Download" links or "Scrape" links (hrefs). If none, null.
+
+    OUTPUT RAW JSON ONLY.
+    
+    CONTENT:
+    {decoded_html[:15000]}
+    """
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
+        content = response.choices[0].message.content.strip()
+        if "```" in content:
+            content = content.split("```")[1].replace("json", "")
+        return json.loads(content.strip())
+    except Exception as e:
+        print(f"Parse Error: {e}")
+        return None
+
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     """
     Solves the question by generating and EXECUTING Python code.
@@ -16,7 +55,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     STRICT INSTRUCTIONS:
     1. **NO NETWORK CALLS:** Do NOT use `requests`. Calculate everything locally.
-    2. **TRANSLATE LOGIC:** - Read the JavaScript functions in the provided text.
+    2. **TRANSLATE LOGIC:** - Read the JavaScript functions in the provided text (like `emailNumber`, `sha1`, `demo2_key`).
        - Implement the EXACT SAME logic in Python.
        - If the JS does `(x * 7919) % 100`, your Python must do `(x * 7919) % 100`.
     3. **OUTPUT:**
@@ -41,9 +80,8 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
             
         print(f"DEBUG: Generated Python Code:\n{code}")
         
-        # --- THE FIX: SHARED SCOPE ---
-        # We create ONE dictionary for both globals and locals.
-        # This allows functions to call each other.
+        # --- SCOPE FIX ---
+        # Create ONE dictionary for both globals and locals so functions can call each other
         execution_scope = {
             "__builtins__": __builtins__,
             "import": __import__,
