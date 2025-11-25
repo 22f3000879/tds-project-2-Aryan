@@ -4,62 +4,53 @@ import httpx
 from io import BytesIO
 from pypdf import PdfReader
 import pandas as pd
+from urllib.parse import urljoin
 from config import STUDENT_EMAIL
+
+def try_decode_base64(text: str):
+    """
+    Helper to find and decode base64 strings in any text (HTML or JS).
+    """
+    # Look for long strings (100+ chars) inside quotes or backticks
+    candidates = re.findall(r'[`\'"]([A-Za-z0-9+/=\s]{100,})[`\'"]', text)
+    if candidates:
+        # Pick the longest one
+        encoded = max(candidates, key=len)
+        try:
+            decoded = base64.b64decode(encoded).decode('utf-8')
+            # Fix variables
+            return decoded.replace("$EMAIL", STUDENT_EMAIL)
+        except:
+            pass
+    return text
 
 async def fetch_and_decode_page(url: str):
     """
-    Fetches HTML and hunts for hidden Base64 content using multiple Regex patterns.
+    Async fetcher for the main quiz loop.
     """
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(url)
         response.raise_for_status()
         html = response.text
-
-    # Pattern 1: Direct atob call -> atob("...")
-    # Pattern 2: Variable assignment -> const code = "..." (common in these CTFs)
-    # We look for a long string (base64-like) inside backticks or quotes.
     
-    # Strategy: Find the longest string inside quotes/backticks that looks like Base64.
-    # This covers both atob(`...`) and const x = `...`
-    candidates = re.findall(r'[`\'"]([A-Za-z0-9+/=\s]{100,})[`\'"]', html)
-    
-    encoded_content = None
-    
-    if candidates:
-        # Pick the longest candidate, it's almost certainly the hidden content
-        encoded_content = max(candidates, key=len)
-
-    if encoded_content:
-        try:
-            # Decode the base64 string
-            decoded_bytes = base64.b64decode(encoded_content)
-            decoded_text = decoded_bytes.decode('utf-8')
-            
-            # --- CRITICAL FIX: Replace variables like $EMAIL ---
-            # The page expects JS to do this. We must do it in Python.
-            decoded_text = decoded_text.replace("$EMAIL", STUDENT_EMAIL)
-            
-            return decoded_text
-        except Exception as e:
-            print(f"Error decoding Base64: {e}")
-            return html 
-    
-    return html
+    # Try decoding the main page HTML
+    return try_decode_base64(html)
 
 def parse_file_content(file_url: str):
     """
-    Downloads content. Handles PDFs, CSVs, AND generic HTML scraping.
+    Sync fetcher for files. NOW HANDLES EXTERNAL SCRIPTS.
     """
     try:
-        # Safety check for the $EMAIL variable issue
+        # 1. Handle variable replacement in URL
         if "$EMAIL" in file_url:
-            return "Error: The $EMAIL variable was not replaced. decoding failed."
+            file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
 
         response = httpx.get(file_url, timeout=30)
         response.raise_for_status()
         
         content_type = response.headers.get("Content-Type", "").lower()
 
+        # 2. PDF Handler
         if "pdf" in content_type or file_url.endswith(".pdf"):
             reader = PdfReader(BytesIO(response.content))
             text = ""
@@ -67,12 +58,33 @@ def parse_file_content(file_url: str):
                 text += page.extract_text() + "\n"
             return f"PDF CONTENT:\n{text}"
         
+        # 3. CSV Handler
         elif "csv" in content_type or file_url.endswith(".csv"):
             df = pd.read_csv(BytesIO(response.content))
-            return f"CSV CONTENT (First 50 rows):\n{df.head(50).to_string()}"
+            return f"CSV CONTENT:\n{df.head(50).to_string()}"
         
+        # 4. HTML/JS Handler (The Fix!)
         else:
-            return f"SCRAPED CONTENT:\n{response.text[:10000]}"
+            main_text = response.text
+            combined_text = main_text
             
+            # Look for external scripts: <script src="demo-scrape.js">
+            scripts = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', main_text)
+            
+            for src in scripts:
+                # Build full URL for the script
+                script_url = urljoin(file_url, src)
+                try:
+                    # Download the script content
+                    js_resp = httpx.get(script_url, timeout=10)
+                    combined_text += f"\n\n--- EXTERNAL SCRIPT ({src}) ---\n{js_resp.text}"
+                except Exception as e:
+                    print(f"Failed to fetch script {src}: {e}")
+
+            # Now try to decode the COMBINED content (HTML + JS)
+            decoded = try_decode_base64(combined_text)
+            
+            return f"SCRAPED CONTENT:\n{decoded[:15000]}"
+
     except Exception as e:
         return f"Error reading file: {e}"
