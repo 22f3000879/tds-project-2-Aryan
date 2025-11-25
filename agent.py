@@ -54,15 +54,17 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **NO NETWORK CALLS:** Do NOT use `requests`. Calculate everything locally.
-    2. **TRANSLATE LOGIC:** - If there is JavaScript (e.g. `emailNumber`, `sha1`), implement the EXACT same logic in Python.
-       - Use `hashlib` for hashing.
-    3. **STEP 1 SPECIAL RULE:** - If the question asks to "POST this JSON" or the sample shows `"answer": "anything"`, your script must just set `solution` to the string value.
-       - **CORRECT:** `solution = "anything you want"`
-       - **WRONG:** `solution = {{ "email": "...", "answer": "..." }}` (DO NOT RETURN A DICTIONARY)
-    4. **OUTPUT:**
-       - Define a variable `solution` with the final answer (String or Number).
-       - Return ONLY the Python code block.
+    1. **IDENTIFY ENTRY POINT:** Look at the "IMPORTED FILE" (e.g., `demo-scrape.js`).
+       - If it says `const code = await emailNumber()`, then your Python script MUST define `email_number` and call `solution = email_number(email)`.
+    2. **NO HALLUCINATIONS:**
+       - Do **NOT** invent functions like `demo2_key` or `key_generator` unless they literally appear in the text.
+       - Do **NOT** add math (like `* 7919`) unless it is literally in the text.
+    3. **TRANSLATE LOGIC 1:1:**
+       - Open the "NESTED IMPORT" (e.g., `utils.js`).
+       - Read the logic inside `emailNumber`.
+       - Implement that EXACT logic in Python.
+    4. **STEP 1 HANDLING:** If the question is "POST this JSON", set `solution = "anything"`.
+    5. **OUTPUT:** Return ONLY the Python code block.
     """
     
     try:
