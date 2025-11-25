@@ -55,11 +55,13 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     STRICT INSTRUCTIONS:
     1. **NO NETWORK CALLS:** Do NOT use `requests`. Calculate everything locally.
-    2. **TRANSLATE LOGIC:** - Read the JavaScript functions in the provided text (like `emailNumber`, `sha1`, `demo2_key`).
-       - Implement the EXACT SAME logic in Python.
-       - If the JS does `(x * 7919) % 100`, your Python must do `(x * 7919) % 100`.
-    3. **OUTPUT:**
-       - Define a variable `solution` with the final answer.
+    2. **TRANSLATE LOGIC:** - If there is JavaScript (e.g. `emailNumber`, `sha1`), implement the EXACT same logic in Python.
+       - Use `hashlib` for hashing.
+    3. **STEP 1 SPECIAL RULE:** - If the question asks to "POST this JSON" or the sample shows `"answer": "anything"`, your script must just set `solution` to the string value.
+       - **CORRECT:** `solution = "anything you want"`
+       - **WRONG:** `solution = {{ "email": "...", "answer": "..." }}` (DO NOT RETURN A DICTIONARY)
+    4. **OUTPUT:**
+       - Define a variable `solution` with the final answer (String or Number).
        - Return ONLY the Python code block.
     """
     
@@ -81,7 +83,6 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         print(f"DEBUG: Generated Python Code:\n{code}")
         
         # --- SCOPE FIX ---
-        # Create ONE dictionary for both globals and locals so functions can call each other
         execution_scope = {
             "__builtins__": __builtins__,
             "import": __import__,
@@ -89,7 +90,6 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         }
         
         try:
-            # Pass execution_scope as BOTH globals and locals
             exec(code, execution_scope, execution_scope)
         except Exception as e:
             print(f"Execution Error: {e}")
