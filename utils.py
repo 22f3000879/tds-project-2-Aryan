@@ -3,7 +3,7 @@ import base64
 import httpx
 from io import BytesIO
 from pypdf import PdfReader
-import pandas as pd
+# No pandas import here needed for parsing, only for checking type if you want
 from urllib.parse import urljoin
 from config import STUDENT_EMAIL, OPENAI_API_KEY
 from openai import OpenAI
@@ -62,14 +62,18 @@ async def fetch_and_decode_page(url: str):
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(url)
         extras = fetch_external_resources(url, resp.text)
-        return try_decode_base64(resp.text + extras) + "\nRaw Extras:\n" + extras
+        combined = resp.text + extras
+        return try_decode_base64(combined) + "\nRaw Extras:\n" + extras
 
 def parse_file_content(file_url: str):
     try:
         if "$EMAIL" in file_url: file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
         resp = httpx.get(file_url, timeout=30)
+        
+        # Just return CSV text to save memory/complexity here.
+        # Let the agent read it with pandas or stringio inside the exec()
         if "csv" in resp.headers.get("Content-Type", "") or file_url.endswith(".csv"):
-            return f"CSV CONTENT:\n{resp.text}" # Optimization: Return raw text
+            return f"CSV CONTENT:\n{resp.text}" 
         
         main_text = resp.text
         extras = fetch_external_resources(file_url, main_text)
