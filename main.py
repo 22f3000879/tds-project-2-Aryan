@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 import httpx
-from .config import STUDENT_EMAIL, STUDENT_SECRET
-from .utils import fetch_and_decode_page, parse_file_content
-from .agent import analyze_task, solve_question
+from config import STUDENT_EMAIL, STUDENT_SECRET
+from utils import fetch_and_decode_page, parse_file_content
+from agent import analyze_task, solve_question
 
 app = FastAPI()
 
