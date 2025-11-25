@@ -52,6 +52,7 @@ async def run_quiz_process(start_url: str):
             
             print(f"Downloading file: {f_url}")
             file_summary = parse_file_content(f_url)
+            print(f"DEBUG - File Summary (First 500 chars): {file_summary[:500]}")
 
         # 4. Solve 
         answer = solve_question(task_data["question"], file_summary, decoded_text)
