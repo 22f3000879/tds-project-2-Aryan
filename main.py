@@ -65,12 +65,21 @@ async def run_quiz_process(start_url: str):
             "answer": answer
         }
         
+        
         raw_submit_url = task_data["submit_url"]
         # CLEAN THE URL
         submit_url = clean_extracted_url(raw_submit_url)
         
+        # --- FIX: Handle case where LLM returns None ---
+        if not submit_url:
+            print("Error: No submit_url found. Using default /submit")
+            submit_url = "/submit"
+        # -----------------------------------------------
+
         if submit_url and not submit_url.startswith("http"):
             submit_url = urljoin(current_url, submit_url)
+            
+        # ... rest of code ...
         
         try:
             print(f"Submitting to {submit_url}")
