@@ -38,44 +38,38 @@ def try_decode_base64(text: str):
 
 def fetch_external_resources(base_url, text):
     extra_content = ""
-    
-    # 1. Scripts & Imports (Recursive)
+    # Scripts/Imports
     refs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', text) + \
            re.findall(r'from\s+["\']([^"\']+)["\']', text)
-    
     for ref in refs:
         full_url = urljoin(base_url, ref)
         try:
             resp = httpx.get(full_url, timeout=10)
             extra_content += f"\n\n--- IMPORTED FILE ({ref}) ---\n{resp.text}"
-            # One level deeper
             nested = re.findall(r'from\s+["\']([^"\']+)["\']', resp.text)
             for n in nested:
                 n_url = urljoin(full_url, n)
                 extra_content += f"\n\n--- NESTED IMPORT ({n}) ---\n{httpx.get(n_url, timeout=10).text}"
         except: pass
 
-    # 2. Audio (For Step 3)
+    # Audio
     audio_srcs = re.findall(r'<audio[^>]+src=["\']([^"\']+)["\']', text)
     for src in audio_srcs:
         extra_content += transcribe_audio(urljoin(base_url, src))
-            
     return extra_content
 
 async def fetch_and_decode_page(url: str):
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(url)
         extras = fetch_external_resources(url, resp.text)
-        combined = resp.text + extras
-        return try_decode_base64(combined) + "\nRaw Extras:\n" + extras
+        return try_decode_base64(resp.text + extras) + "\nRaw Extras:\n" + extras
 
 def parse_file_content(file_url: str):
     try:
         if "$EMAIL" in file_url: file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
         resp = httpx.get(file_url, timeout=30)
-        
         if "csv" in resp.headers.get("Content-Type", "") or file_url.endswith(".csv"):
-            return f"CSV CONTENT:\n{pd.read_csv(BytesIO(resp.content)).to_string()}"
+            return f"CSV CONTENT:\n{resp.text}" # Optimization: Return raw text
         
         main_text = resp.text
         extras = fetch_external_resources(file_url, main_text)
