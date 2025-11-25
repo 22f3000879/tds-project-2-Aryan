@@ -15,10 +15,11 @@ async def fetch_and_decode_page(url: str):
         response.raise_for_status()
         html = response.text
 
-    # --- THE FIX IS HERE ---
-    # We added ` (backtick) to the character class inside the regex.
-    # Pattern: atob( QUOTEMARK (base64) QUOTEMARK )
-    pattern = r'atob\s*\(\s*[`\'"]([A-Za-z0-9+/=]+)[`\'"]\s*\)'
+    # --- THE FIX ---
+    # We changed the capture group to ([^`'"]+)
+    # This means: "Capture absolutely anything that is NOT a quote character"
+    # This automatically includes newlines, which broke the previous version.
+    pattern = r'atob\s*\(\s*[`\'"]([^`\'"]+)[`\'"]\s*\)'
     
     match = re.search(pattern, html)
 
@@ -33,7 +34,6 @@ async def fetch_and_decode_page(url: str):
             print(f"Error decoding Base64: {e}")
             return html # Fallback to raw HTML
     
-    # If no match found, return raw HTML (maybe it wasn't hidden?)
     return html
 
 def parse_file_content(file_url: str):
