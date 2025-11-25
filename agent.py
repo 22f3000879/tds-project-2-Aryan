@@ -53,32 +53,31 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     --- PAGE CONTENT ---
     {page_content[:10000]}
     
-    GENERAL RULES (Apply to ALL Steps):
+    GENERAL RULES:
     1. **NO NETWORK:** Do NOT use `requests`. Calculate everything locally.
-    2. **SYNCHRONOUS ONLY:** No `async` or `await`.
-    3. **NO HALLUCINATIONS:** - **CRITICAL:** Do NOT use `demo2_key`, `7919`, or `12345` unless you explicitly see them in the "DATA" section above.
-       - Only implement logic that is visibly present in the text.
+    2. **NO HALLUCINATIONS:** Only use logic/numbers found in the provided text.
     
-    SCENARIO LOGIC (Detect which case applies):
+    SCENARIO LOGIC:
     
-    **SCENARIO A: The "Anything" Answer**
-    - IF the JSON sample in the page content says `"answer": "anything"` (or similar placeholder), simply write:
-      `solution = "anything you want"`
+    **SCENARIO A: "Anything" Answer**
+    - IF JSON sample says `"answer": "anything"`, write: `solution = "anything you want"`
     
-    **SCENARIO B: JavaScript Logic (The Secret Code)**
-    - IF the "IMPORTED FILE" contains JavaScript logic (like `emailNumber`):
-      1. Read the JS logic carefully.
-      2. If `utils.js` defines `emailNumber` as just `int(sha1(email)[:4], 16)`, then WRITE THAT EXACTLY.
-      3. Do NOT add extra math operations that aren't there.
+    **SCENARIO B: JavaScript Logic (Secret Code)**
+    - IF JS logic is present, implement it EXACTLY in Python.
     
-    **SCENARIO C: Audio + CSV**
-    - IF there is an "AUDIO TRANSCRIPT", read the rule from it (e.g., "Sum numbers > X").
-    - IF there is "CSV CONTENT", parse the data.
-    - Combine them: Calculate the cutoff, filter the CSV, compute the result.
+    **SCENARIO C: Audio + CSV (The Cutoff Task)**
+    - **Step 1:** Read the "AUDIO TRANSCRIPT" rule (e.g. "Sum values > cutoff").
+    - **Step 2:** Find the "Cutoff" value.
+      - If the page says `innerHTML = await emailNumber()`, you MUST implement `emailNumber` (from `utils.js` content) to get the integer.
+    - **Step 3:** Process the CSV.
+      - Use `io.StringIO` and `pandas`.
+      - Calculate the result.
+      - **CRITICAL:** Convert the result to a standard Python integer: `solution = int(result)`.
 
     **OUTPUT:**
-    - Define a variable `solution` with the final answer.
-    - Return ONLY the Python code block.
+    - Define variable `solution`.
+    - Ensure `solution` is a standard `int`, `float`, or `str` (NOT numpy.int64).
+    - Return ONLY Python code.
     """
     
     try:
@@ -89,7 +88,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         )
         content = response.choices[0].message.content.strip()
         
-        # Extract Python Code
+        # Extract Code
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         if code_match:
             code = code_match.group(1)
@@ -98,26 +97,13 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
             
         print(f"DEBUG: Generated Python Code:\n{code}")
         
-        # --- SCOPE FIX ---
-        execution_scope = {
-            "__builtins__": __builtins__,
-            "import": __import__,
-            "email": STUDENT_EMAIL
-        }
+        # Shared Scope
+        scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL}
+        exec(code, scope, scope)
         
-        try:
-            exec(code, execution_scope, execution_scope)
-        except Exception as e:
-            print(f"Execution Error: {e}")
-            traceback.print_exc()
-            return "Error executing code"
-            
-        # Retrieve Solution
-        answer = execution_scope.get("solution")
-        print(f"DEBUG: Execution Result (solution): {answer}")
-        
-        return answer
+        return scope.get("solution")
 
     except Exception as e:
         print(f"Solve Error: {e}")
+        traceback.print_exc()
         return "Error"
