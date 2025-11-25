@@ -1,6 +1,6 @@
 import json
 from openai import OpenAI
-from .config import OPENAI_API_KEY, OPENAI_MODEL
+from config import OPENAI_API_KEY, OPENAI_MODEL
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
