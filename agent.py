@@ -54,15 +54,22 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **NO NETWORK CALLS:** Do NOT use `requests`. Calculate everything locally.
-    2. **TRANSLATE LOGIC:** - Read the JavaScript functions (e.g., `emailNumber`, `sha1`).
-       - Implement the EXACT logic in Python.
-       - Use `hashlib` for hashing.
-    3. **SYNCHRONOUS ONLY:** - Do **NOT** use `async def` or `await`. 
-       - Python's `hashlib` is synchronous. Just write normal functions.
-    4. **STEP 1 SPECIAL RULE:** - If the question asks to "POST this JSON", set `solution = "anything you want"`.
+    1. **DECIDE THE GOAL (CRITICAL):**
+       - Look at the "answer" field in the JSON sample inside the PAGE CONTENT.
+       - **CASE A:** If it says "anything you want", simply write: `solution = "anything you want"`.
+       - **CASE B:** If it says "the secret code" or similar, you MUST CALCULATE it from the scripts.
+
+    2. **CALCULATION LOGIC (For CASE B only):**
+       - Look at the "IMPORTED FILE" (e.g. `demo-scrape.js`).
+       - If it calls `emailNumber()`, you must define `email_number` and call it.
+       - **NO HALLUCINATIONS:** Do NOT invent functions (like `demo2_key`). Do NOT add random math (like `* 7919`) unless it is explicitly in the text.
+       - Translate the logic from `utils.js` exactly.
+    
+    3. **SYNCHRONOUS ONLY:** No `async`/`await`. Use `hashlib` for sha1.
+    4. **NO NETWORK:** Do not use `requests`.
+
     5. **OUTPUT:**
-       - Define a variable `solution` with the final answer (String or Number).
+       - Define a variable `solution` with the final answer.
        - Return ONLY the Python code block.
     """
     
@@ -91,7 +98,6 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         }
         
         try:
-            # Execute the code
             exec(code, execution_scope, execution_scope)
         except Exception as e:
             print(f"Execution Error: {e}")
