@@ -40,7 +40,7 @@ async def run_quiz_process(start_url: str):
             print(f"Downloading file: {f_url}")
             file_summary = parse_file_content(f_url)
 
-        # 4. Solve (CRITICAL FIX: Passing decoded_text here)
+        # 4. Solve (Passes decoded_text to read the page content)
         answer = solve_question(task_data["question"], file_summary, decoded_text)
         print(f"Calculated Answer: {answer}")
         
@@ -94,3 +94,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     
     background_tasks.add_task(run_quiz_process, data.get("url"))
     return {"message": "Quiz processing started", "status": "ok"}
+
+# --- THIS WAS MISSING ---
+@app.get("/")
+def health_check():
+    return {"status": "active", "student": STUDENT_EMAIL}
