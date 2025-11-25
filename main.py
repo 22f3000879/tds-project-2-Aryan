@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 import httpx
+from urllib.parse import urljoin
 from config import STUDENT_EMAIL, STUDENT_SECRET
 from utils import fetch_and_decode_page, parse_file_content
 from agent import analyze_task, solve_question
@@ -13,7 +14,7 @@ async def run_quiz_process(start_url: str):
     current_url = start_url
     step_count = 0
     
-    # Run for a max of 5 steps to prevent infinite loops during testing
+    # Run for a max of 10 steps to prevent infinite loops during testing
     while current_url and step_count < 10:
         print(f"--- STEP {step_count + 1} processing {current_url} ---")
         
@@ -31,13 +32,10 @@ async def run_quiz_process(start_url: str):
         # 3. Handle Files (if any)
         file_summary = "No files."
         if task_data.get("file_url"):
-            # Handle relative URLs
             f_url = task_data["file_url"]
+            # Handle relative URLs for files
             if not f_url.startswith("http"):
-                # Construct absolute URL based on current_url logic if needed
-                # For now assume mostly absolute or handle simple join
-                base_url = "/".join(current_url.split("/")[:3])
-                f_url = base_url + f_url
+                f_url = urljoin(current_url, f_url)
             
             print(f"Downloading file: {f_url}")
             file_summary = parse_file_content(f_url)
@@ -56,19 +54,37 @@ async def run_quiz_process(start_url: str):
         
         submit_url = task_data["submit_url"]
         
+        # --- FIX: Handle Relative Submit URLs ---
+        if submit_url and not submit_url.startswith("http"):
+            submit_url = urljoin(current_url, submit_url)
+        # ----------------------------------------
+        
         try:
+            print(f"Submitting to {submit_url}...")
             async with httpx.AsyncClient() as client:
                 resp = await client.post(submit_url, json=submit_payload, timeout=30)
-                result = resp.json()
+                
+                try:
+                    result = resp.json()
+                except:
+                    # If response isn't JSON, print text for debugging
+                    print(f"Non-JSON response: {resp.text}")
+                    break
+
                 print(f"Submission Result: {result}")
                 
                 # 6. Check for next URL
                 if result.get("correct") and result.get("url"):
                     current_url = result["url"]
                     step_count += 1
+                elif result.get("correct"):
+                     print("Quiz Completed Successfully!")
+                     break
                 else:
-                    print("Quiz finished or answer incorrect.")
+                    print(f"Wrong Answer. Reason: {result.get('reason')}")
+                    # Optional: specific retry logic could go here
                     break
+                    
         except Exception as e:
             print(f"Submission failed: {e}")
             break
@@ -76,21 +92,15 @@ async def run_quiz_process(start_url: str):
 
 @app.post("/")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
-    """
-    The API Endpoint that receives the request.
-    """
     try:
         data = await request.json()
     except:
         raise HTTPException(status_code=400, detail="Invalid JSON")
         
-    # Security Check
     if data.get("secret") != STUDENT_SECRET:
         raise HTTPException(status_code=403, detail="Invalid Secret")
         
     quiz_url = data.get("url")
-    
-    # Start the "Brain" in the background so we can return 200 OK immediately
     background_tasks.add_task(run_quiz_process, quiz_url)
     
     return {"message": "Quiz processing started", "status": "ok"}
