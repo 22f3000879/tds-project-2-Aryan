@@ -21,27 +21,12 @@ def analyze_task(decoded_html: str):
         return json.loads(content.strip())
     except: return None
 
-def sanitize_code(code: str, context: str):
-    """
-    Cleans code and removes hallucinations based on context.
-    """
-    # 1. Remove Network stuff
+def sanitize_code(code: str):
     code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
-    
-    # 2. SURGICAL REMOVAL OF HALLUCINATIONS
-    # If the code tries to do the "7919" math, but "7919" isn't in the source files...
-    if "7919" in code and "7919" not in context:
-        print("DEBUG: Detecting hallucinated math. Removing it...")
-        # Replace the math line with a simple assignment
-        # Regex matches: variable = (base * 7919 ...
-        code = re.sub(r'(\w+)\s*=\s*\(.*?\*\s*7919.*', r'\1 = email_number(email)', code)
-        
-    # 3. Function Replacement
-    if "demo2_key" in code and "demo2_key" not in context:
-         code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
-
+    if "demo2_key" in code and "7919" not in code: 
+        code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
     return code
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
@@ -58,19 +43,36 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT RULES:
-    1. **SCENARIO A (Anything):** If JSON sample says "answer": "anything", write: `solution = "anything you want"`
+    1. **NO NETWORK:** Do NOT use `requests`. Use `io.StringIO(file_summary)` for CSVs.
+    2. **NO HALLUCINATIONS:** Do NOT use `demo2_key` or `7919` unless explicitly in the text.
+    3. **SYNCHRONOUS ONLY:** No `async`/`await`.
     
-    2. **SCENARIO B (JS Logic):** - Implement logic from "IMPORTED FILE" 1:1.
-       - **DO NOT** use `demo2_key` or `7919` unless explicitly seen in the text.
-       - Just return the result of `emailNumber()`.
+    SCENARIO DETECTOR:
     
-    3. **SCENARIO C (Audio/CSV):**
-       - Read "AUDIO TRANSCRIPT" for the rule.
-       - Use `io.StringIO(file_summary)` for CSVs.
-       - `solution = int(result)`.
+    **A. VISUALIZATION (Charts):**
+       - If asked to plot:
+         1. Use `matplotlib.pyplot`.
+         2. Save plot to `io.BytesIO`.
+         3. `solution = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')`
+    
+    **B. MACHINE LEARNING / ANALYSIS:**
+       - If asked to cluster or regress:
+         1. Use `sklearn` (e.g., KMeans, LinearRegression).
+         2. Use `pandas` to clean data first.
+         3. `solution = result`
+    
+    **C. HYBRID TASK (Audio + CSV + JS):**
+       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT".
+       - **Step 2 (Cutoff):** If transcript/page mentions `emailNumber` or `cutoff`, you MUST calculate it using the JS logic found in "IMPORTED FILE" (usually `utils.js`). Translate JS to Python 1:1.
+       - **Step 3 (Data):** Read CSV from `file_summary` using `pd.read_csv(io.StringIO(file_summary))`.
+       - **Step 4 (Clean):** Ensure columns are numeric: `df[0] = pd.to_numeric(df[0], errors='coerce')`.
+       - **Step 5 (Solve):** Filter and sum. 
+       - **CRITICAL:** `solution = int(result)` (Convert numpy int to python int).
+    
+    **D. SIMPLE PLACEHOLDER:**
+       - If sample says "anything", `solution = "anything you want"`.
 
     **OUTPUT:**
-    - **MUST** define a variable named `solution` at the end.
     - Return ONLY Python code.
     """
     
@@ -84,32 +86,29 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
         
-        # --- INTELLIGENT SANITIZATION ---
-        # Pass the file_summary as context so we know what is real and what is fake
-        code = sanitize_code(code, file_summary)
-        print(f"DEBUG: Final Python Code:\n{code}")
+        code = sanitize_code(code)
+        print(f"DEBUG: Sanitized Python Code:\n{code}")
         
-        # Shared Scope
-        scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL, 
-                 "file_summary": file_summary, "page_content": page_content}
+        # Variables for the script
+        scope = {
+            "__builtins__": __builtins__,
+            "import": __import__,
+            "email": STUDENT_EMAIL,
+            "file_summary": file_summary, 
+            "page_content": page_content
+        }
         
         exec(code, scope, scope)
         
-        # --- SAFETY NET: Find the answer if 'solution' is missing ---
-        if "solution" in scope:
-            return scope["solution"]
-        elif "secret_code" in scope:
-            print("DEBUG: 'solution' missing, using 'secret_code'")
-            return scope["secret_code"]
-        elif "answer" in scope:
-            print("DEBUG: 'solution' missing, using 'answer'")
-            return scope["answer"]
-        elif "result" in scope:
-            print("DEBUG: 'solution' missing, using 'result'")
-            return scope["result"]
-        else:
-            print("ERROR: No solution variable found.")
-            return None
+        # --- FINAL TYPE CHECK ---
+        # This fixes the "int64 is not JSON serializable" error
+        solution = scope.get("solution")
+        
+        # Handle numpy types
+        if hasattr(solution, 'item'): 
+            solution = solution.item() # Converts numpy types to python types
+            
+        return solution
 
     except Exception as e:
         print(f"Solve Error: {e}")
