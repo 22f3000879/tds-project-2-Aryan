@@ -14,12 +14,14 @@ async def run_quiz_process(start_url: str):
     current_url = start_url
     step_count = 0
     
+    # Run for a max of 10 steps to prevent infinite loops
     while current_url and step_count < 10:
         print(f"--- STEP {step_count + 1} processing {current_url} ---")
         
         # 1. Get the Hidden Question AND Page Content
         decoded_text = await fetch_and_decode_page(current_url)
-        
+        print(f"DEBUG: Page Content (First 500 chars): {decoded_text[:500]}...")
+
         # 2. Parse it with LLM
         task_data = analyze_task(decoded_text)
         if not task_data:
@@ -38,7 +40,7 @@ async def run_quiz_process(start_url: str):
             print(f"Downloading file: {f_url}")
             file_summary = parse_file_content(f_url)
 
-        # 4. Solve (UPDATED: Passing decoded_text as the 3rd argument)
+        # 4. Solve (CRITICAL FIX: Passing decoded_text here)
         answer = solve_question(task_data["question"], file_summary, decoded_text)
         print(f"Calculated Answer: {answer}")
         
@@ -51,7 +53,6 @@ async def run_quiz_process(start_url: str):
         }
         
         submit_url = task_data["submit_url"]
-        
         if submit_url and not submit_url.startswith("http"):
             submit_url = urljoin(current_url, submit_url)
         
@@ -59,7 +60,6 @@ async def run_quiz_process(start_url: str):
             print(f"Submitting to {submit_url}...")
             async with httpx.AsyncClient() as client:
                 resp = await client.post(submit_url, json=submit_payload, timeout=30)
-                
                 try:
                     result = resp.json()
                 except:
@@ -68,21 +68,20 @@ async def run_quiz_process(start_url: str):
 
                 print(f"Submission Result: {result}")
                 
-                if result.get("correct") and result.get("url"):
-                    current_url = result["url"]
-                    step_count += 1
-                elif result.get("correct"):
-                     print("Quiz Completed Successfully!")
-                     break
+                if result.get("correct"):
+                    if result.get("url"):
+                        current_url = result["url"]
+                        step_count += 1
+                    else:
+                        print("Quiz Completed Successfully!")
+                        break
                 else:
                     print(f"Wrong Answer. Reason: {result.get('reason')}")
-                    # If we fail, we stop to prevent infinite spamming
                     break
                     
         except Exception as e:
             print(f"Submission failed: {e}")
             break
-
 
 @app.post("/")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
@@ -90,15 +89,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         data = await request.json()
     except:
         raise HTTPException(status_code=400, detail="Invalid JSON")
-        
     if data.get("secret") != STUDENT_SECRET:
         raise HTTPException(status_code=403, detail="Invalid Secret")
-        
-    quiz_url = data.get("url")
-    background_tasks.add_task(run_quiz_process, quiz_url)
     
+    background_tasks.add_task(run_quiz_process, data.get("url"))
     return {"message": "Quiz processing started", "status": "ok"}
-
-@app.get("/")
-def health_check():
-    return {"status": "active", "student": STUDENT_EMAIL}
