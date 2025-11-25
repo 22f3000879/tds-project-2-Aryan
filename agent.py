@@ -61,18 +61,20 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     You are a Data Science assistant. 
     Calculate the answer to this question.
     
-    QUESTION: {question}
+    QUESTION FROM PARSER: {question}
     
-    --- PAGE CONTENT (The answer might be written here) ---
+    --- PAGE CONTENT (The REAL question and answer are likely hidden here) ---
     {page_content[:20000]} 
     
     --- DATA CONTEXT (From downloaded files) ---
     {file_summary}
     
     INSTRUCTION:
-    - If the question asks for a number, return just the number.
-    - If the question asks for text/code found on the page, extract it exactly.
-    - Return STRICT JSON format: {{ "answer": <YOUR_ANSWER> }}
+    1. First, check the PAGE CONTENT. The "QUESTION FROM PARSER" might be wrong/incomplete.
+    2. If the Page Content contains a clear question (like "What is the secret code?"), ANSWER THAT.
+    3. If the question asks for a number, return just the number.
+    4. If the question asks for text/code found on the page, extract it exactly.
+    5. Return STRICT JSON format: {{ "answer": <YOUR_ANSWER> }}
     """
     
     try:
@@ -93,4 +95,3 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     except Exception as e:
         print(f"Solve Error: {e}")
         return None
-# --- UPDATE END ---
