@@ -53,24 +53,28 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     --- PAGE CONTENT ---
     {page_content[:10000]}
     
-    GENERAL RULES:
+    GENERAL RULES (Apply to ALL Steps):
     1. **NO NETWORK:** Do NOT use `requests`. Calculate everything locally.
-    2. **NO HALLUCINATIONS:** Only use logic/numbers found in the provided text. Do not invent functions (like `demo2_key`) or magic numbers (like `7919`) unless they are explicitly in the text.
+    2. **SYNCHRONOUS ONLY:** No `async` or `await`.
+    3. **NO HALLUCINATIONS:** - **CRITICAL:** Do NOT use `demo2_key`, `7919`, or `12345` unless you explicitly see them in the "DATA" section above.
+       - Only implement logic that is visibly present in the text.
     
-    DYNAMIC LOGIC (Apply the rule that fits the data):
+    SCENARIO LOGIC (Detect which case applies):
     
-    **CASE A: JS Logic / Secret Code**
-    - IF you see JavaScript code (e.g. in "IMPORTED FILE"), translate that logic 1:1 into Python.
-    - IF `utils.js` defines a function, write a Python equivalent.
-    - EXECUTE the translated function to get the secret.
+    **SCENARIO A: The "Anything" Answer**
+    - IF the JSON sample in the page content says `"answer": "anything"` (or similar placeholder), simply write:
+      `solution = "anything you want"`
     
-    **CASE B: Audio Instructions + Data**
-    - IF there is an "AUDIO TRANSCRIPT", read it carefully. It contains the math rule (e.g. "Sum numbers > 500").
-    - IF there is "CSV CONTENT", parse the data and apply the math rule from the transcript.
+    **SCENARIO B: JavaScript Logic (The Secret Code)**
+    - IF the "IMPORTED FILE" contains JavaScript logic (like `emailNumber`):
+      1. Read the JS logic carefully.
+      2. If `utils.js` defines `emailNumber` as just `int(sha1(email)[:4], 16)`, then WRITE THAT EXACTLY.
+      3. Do NOT add extra math operations that aren't there.
     
-    **CASE C: Simple JSON Submission**
-    - IF the page provides a JSON sample where `"answer": "anything"`, simply set `solution = "anything you want"`.
-    - IF the page asks for a simple text extraction, just assign that text to `solution`.
+    **SCENARIO C: Audio + CSV**
+    - IF there is an "AUDIO TRANSCRIPT", read the rule from it (e.g., "Sum numbers > X").
+    - IF there is "CSV CONTENT", parse the data.
+    - Combine them: Calculate the cutoff, filter the CSV, compute the result.
 
     **OUTPUT:**
     - Define a variable `solution` with the final answer.
