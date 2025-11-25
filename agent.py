@@ -7,19 +7,9 @@ from config import OPENAI_API_KEY, OPENAI_MODEL, STUDENT_EMAIL
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def analyze_task(decoded_html: str):
-    """
-    Analyzes the task to extract the question and URLs.
-    """
     prompt = f"""
-    You are a scraper parser. Extract strictly valid JSON from this content.
-    
-    Keys: 
-    - "question": Extract the EXACT instruction text from the page. 
-    - "submit_url": The URL to POST the answer to.
-    - "file_url": Look for "Download" links or "Scrape" links (hrefs). If none, null.
-
-    OUTPUT RAW JSON ONLY.
-    
+    You are a scraper parser. Extract strictly valid JSON.
+    Keys: "question", "submit_url", "file_url".
     CONTENT:
     {decoded_html[:15000]}
     """
@@ -33,42 +23,40 @@ def analyze_task(decoded_html: str):
         if "```" in content:
             content = content.split("```")[1].replace("json", "")
         return json.loads(content.strip())
-    except Exception as e:
-        print(f"Parse Error: {e}")
+    except:
         return None
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
-    """
-    Solves the question by generating and EXECUTING Python code.
-    """
     prompt = f"""
     You are a Python Expert. Write a Python script to calculate the answer.
     
     QUESTION: {question}
     Student Email: "{STUDENT_EMAIL}"
     
-    --- DATA / SCRIPTS (Source of Truth) ---
+    --- DATA / SCRIPTS / TRANSCRIPTS ---
     {file_summary}
     
     --- PAGE CONTENT ---
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **NO MEMORY / NO HALLUCINATIONS:**
-       - **CRITICAL:** Do NOT use the function `demo2_key`. It does not exist in the text.
-       - **CRITICAL:** Do NOT use the numbers `7919` or `12345` unless you see them in the text above.
-       - The LLM often hallucinates these numbers from training data. **IGNORE THEM.**
+    1. **CHECK FOR AUDIO INSTRUCTIONS:**
+       - Look for "AUDIO TRANSCRIPT" sections in the data.
+       - The transcript will contain the logic (e.g. "Sum all numbers greater than the cutoff").
     
-    2. **TRANSLATE LOGIC 1:1:**
-       - Look at the "IMPORTED FILE" (e.g. `demo-scrape.js`). It likely calls `const code = await emailNumber();`.
-       - Look at "NESTED IMPORT" (e.g. `utils.js`) to see what `emailNumber` does.
-       - **ONLY** implement the logic you see in `utils.js`.
-       - If `emailNumber` just does SHA1 and slicing, **STOP THERE**. Do not add extra multiplication.
+    2. **CHECK FOR CSV DATA:**
+       - If there is CSV data in the context, you must Parse it.
+       - You can parse the CSV string using `io.StringIO` and `csv` module or simple string splitting.
     
-    3. **STEP 1 HANDLING:**
-       - If the JSON sample says `"answer": "anything"`, set `solution = "anything"`.
+    3. **TRANSLATE JS LOGIC:**
+       - If the transcript mentions a "Cutoff" calculated by `emailNumber()`, implement `emailNumber` (from `utils.js`) in Python to get that cutoff value.
     
-    4. **OUTPUT:**
+    4. **COMBINE THEM:**
+       - Calculate the Cutoff.
+       - Parse the CSV numbers.
+       - Perform the math asked in the Transcript (Sum > Cutoff, Count < Cutoff, etc).
+
+    5. **OUTPUT:**
        - Define a variable `solution` with the final answer.
        - Return ONLY the Python code block.
     """
@@ -98,14 +86,12 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         }
         
         try:
-            # Pass execution_scope as BOTH globals and locals
             exec(code, execution_scope, execution_scope)
         except Exception as e:
             print(f"Execution Error: {e}")
             traceback.print_exc()
             return "Error executing code"
             
-        # Retrieve Solution
         answer = execution_scope.get("solution")
         print(f"DEBUG: Execution Result (solution): {answer}")
         
