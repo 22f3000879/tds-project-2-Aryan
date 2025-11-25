@@ -21,6 +21,18 @@ def analyze_task(decoded_html: str):
         return json.loads(content.strip())
     except: return None
 
+def sanitize_code(code: str):
+    # Remove network libraries
+    code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
+    code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
+    # Force Synchronous
+    code = code.replace("async def ", "def ")
+    code = code.replace("await ", "")
+    # Remove specific hallucinated function calls if found
+    if "7919" not in code and "demo2_key" in code:
+        code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
+    return code
+
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     prompt = f"""
     You are a Python Expert. Write a Python script to calculate the answer.
@@ -35,34 +47,28 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **IMPORTS:** You can use `pandas`, `numpy`, `scikit-learn`, `matplotlib.pyplot`, `seaborn`.
+    1. **SCENARIO A (Anything):** If JSON sample says "answer": "anything", write: `solution = "anything you want"`
     
-    2. **SCENARIO: VISUALIZATION (Charts/Plots):**
-       - If asked to plot/visualize:
-         1. Create plot with `plt.figure()`.
-         2. Save to buffer:
-            ```python
-            import io, base64
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png')
-            buf.seek(0)
-            solution = "data:image/png;base64," + base64.b64encode(buf.read()).decode('utf-8')
-            ```
+    2. **SCENARIO B (Secret Code):** - Implement logic from "IMPORTED FILE" (e.g. `emailNumber`) 1:1.
+       - Do NOT use `demo2_key` or `7919` unless seen in text.
     
-    3. **SCENARIO: ANALYSIS / ML:**
-       - If asked for clustering/regression, use `sklearn`.
-       - Example: `from sklearn.linear_model import LinearRegression`.
-    
-    4. **SCENARIO: SECRET CODE (JS Logic):**
-       - Translate JS logic 1:1. Do NOT use `demo2_key` or `7919` unless seen in text.
-    
-    5. **SCENARIO: CSV/AUDIO:**
-       - Parse CSV, apply rules from Audio transcript.
-       - **CRITICAL:** For simple numbers, `solution = int(result)`.
+    3. **SCENARIO C (Audio/CSV):**
+       - Read "AUDIO TRANSCRIPT" for the rule.
+       - **CSV HANDLING:** The CSV data is provided in the variable `file_summary` (passed as a string). 
+       - **DO NOT read a file from disk.** Use `io.StringIO`.
+       - Example:
+         ```python
+         import pandas as pd
+         import io
+         # 'file_summary' variable contains the CSV text
+         # We need to strip non-CSV parts first if it has headers like "CSV CONTENT:"
+         csv_text = "{file_summary}".split("CSV CONTENT:")[-1].strip()
+         df = pd.read_csv(io.StringIO(csv_text))
+         ```
+       - **Cutoff:** If the page mentions `emailNumber()`, implement that function (from utils.js logic) to calculate the cutoff.
+       - Calculate the result. `solution = int(result)`.
 
-    6. **OUTPUT:**
-       - Define variable `solution`.
-       - Return ONLY the Python code block.
+    4. **OUTPUT:** Return ONLY the Python code block.
     """
     
     try:
@@ -74,7 +80,10 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         # Extract Code
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
-        print(f"DEBUG: Generated Python Code:\n{code}")
+        
+        # Sanitize
+        code = sanitize_code(code)
+        print(f"DEBUG: Sanitized Python Code:\n{code}")
         
         # Execute
         scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL}
