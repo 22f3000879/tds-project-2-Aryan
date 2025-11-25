@@ -73,7 +73,7 @@ async def run_quiz_process(start_url: str):
             submit_url = urljoin(current_url, submit_url)
         
         try:
-            print(f"Submitting to {submit_url}...")
+            print(f"Submitting to {submit_url}")
             async with httpx.AsyncClient() as client:
                 resp = await client.post(submit_url, json=submit_payload, timeout=30)
                 try:
