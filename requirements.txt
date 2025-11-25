@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+httpx
+beautifulsoup4
+pypdf
+pandas
+numpy
+openai>=1.0.0
+python-multipart
+requests
