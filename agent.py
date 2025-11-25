@@ -47,28 +47,28 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     QUESTION: {question}
     Student Email: "{STUDENT_EMAIL}"
     
-    --- DATA / SCRIPTS (JS Logic) ---
+    --- DATA / SCRIPTS (Source of Truth) ---
     {file_summary}
     
     --- PAGE CONTENT ---
     {page_content[:10000]}
     
     STRICT INSTRUCTIONS:
-    1. **DECIDE THE GOAL (CRITICAL):**
-       - Look at the "answer" field in the JSON sample inside the PAGE CONTENT.
-       - **CASE A:** If it says "anything you want", simply write: `solution = "anything you want"`.
-       - **CASE B:** If it says "the secret code" or similar, you MUST CALCULATE it from the scripts.
-
-    2. **CALCULATION LOGIC (For CASE B only):**
-       - Look at the "IMPORTED FILE" (e.g. `demo-scrape.js`).
-       - If it calls `emailNumber()`, you must define `email_number` and call it.
-       - **NO HALLUCINATIONS:** Do NOT invent functions (like `demo2_key`). Do NOT add random math (like `* 7919`) unless it is explicitly in the text.
-       - Translate the logic from `utils.js` exactly.
+    1. **NO MEMORY / NO HALLUCINATIONS:**
+       - **CRITICAL:** Do NOT use the function `demo2_key`. It does not exist in the text.
+       - **CRITICAL:** Do NOT use the numbers `7919` or `12345` unless you see them in the text above.
+       - The LLM often hallucinates these numbers from training data. **IGNORE THEM.**
     
-    3. **SYNCHRONOUS ONLY:** No `async`/`await`. Use `hashlib` for sha1.
-    4. **NO NETWORK:** Do not use `requests`.
-
-    5. **OUTPUT:**
+    2. **TRANSLATE LOGIC 1:1:**
+       - Look at the "IMPORTED FILE" (e.g. `demo-scrape.js`). It likely calls `const code = await emailNumber();`.
+       - Look at "NESTED IMPORT" (e.g. `utils.js`) to see what `emailNumber` does.
+       - **ONLY** implement the logic you see in `utils.js`.
+       - If `emailNumber` just does SHA1 and slicing, **STOP THERE**. Do not add extra multiplication.
+    
+    3. **STEP 1 HANDLING:**
+       - If the JSON sample says `"answer": "anything"`, set `solution = "anything"`.
+    
+    4. **OUTPUT:**
        - Define a variable `solution` with the final answer.
        - Return ONLY the Python code block.
     """
@@ -98,6 +98,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         }
         
         try:
+            # Pass execution_scope as BOTH globals and locals
             exec(code, execution_scope, execution_scope)
         except Exception as e:
             print(f"Execution Error: {e}")
