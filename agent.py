@@ -64,6 +64,8 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     1. **NO NETWORK:** Do NOT use `requests`. Use `io.StringIO(file_summary)` for CSVs.
     2. **NO HALLUCINATIONS:** Do NOT use `demo2_key` or `7919` unless explicitly in the text.
     3. **SYNCHRONOUS ONLY:** No `async`/`await`.
+    4. **DONT USE ANY FORMULA FROM YOUR MEMMORY OR any prior knowledge IF YOU SEE ANY SIMILAR QUESTIONS. ALWAY Trust whats provided above:** Dont be oversmart
+    5. **WARNING:** Do not add math that is not in the Source File. If the Source File only does `sha1` and `slice`, then your Python must ONLY do `sha1` and `slice`
     
     SCENARIO DETECTOR:
     
