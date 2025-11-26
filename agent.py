@@ -22,32 +22,26 @@ def analyze_task(decoded_html: str):
     except: return None
 
 def sanitize_code(code: str):
-    """
-    Standard safety cleaning. 
-    (We keep the 7919 check as a 'Safety Net' just in case, but the new prompt should prevent it).
-    """
     code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
-    
-    # Safety Net: If the prompt fails, this catches the hallucination
-    if "7919" in code:
-        code = code.replace("7919", "1").replace("12345", "0").replace("% 100000000", "")
-    if "demo2_key" in code:
-         code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
+    if "demo2_key" in code and "7919" not in code: 
+        code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
     return code
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     prompt = f"""
-    You are a Code Transpiler (JavaScript -> Python). You do NOT solve problems. You only translate code.
+    You are a Python Expert. Write a Python script to calculate the answer.
     
-    CONTEXT:
-    - Student Email: "{STUDENT_EMAIL}"
+    QUESTION: {question}
+    Student Email: "{STUDENT_EMAIL}"
     
-    SOURCE FILES (The ONLY truth):
+    --- DATA / SCRIPTS / TRANSCRIPTS ---
     {file_summary}
     
-    INSTRUCTIONS:
+    --- PAGE CONTENT ---
+    {page_content[:10000]}
+    
     STRICT RULES:
     1. **NO NETWORK:** Do NOT use `requests`. Use `io.StringIO(file_summary)` for CSVs.
     2. **NO HALLUCINATIONS:** Do NOT use `demo2_key` or `7919` unless explicitly in the text.
@@ -89,24 +83,38 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
         
-        # Sanitize
         code = sanitize_code(code)
-        print(f"DEBUG: Generated Code:\n{code}")
+        print(f"DEBUG: Sanitized Python Code:\n{code}")
         
-        # Shared Scope
-        scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL, 
-                 "file_summary": file_summary, "page_content": page_content}
+        # Variables for the script
+        scope = {
+            "__builtins__": __builtins__,
+            "import": __import__,
+            "email": STUDENT_EMAIL,
+            "file_summary": file_summary, 
+            "page_content": page_content
+        }
         
         exec(code, scope, scope)
         
-        # Result Extraction
-        solution = None
-        for var in ["solution", "secret_code", "answer", "result"]:
-            if var in scope:
-                solution = scope[var]
-                break
-        
-        if hasattr(solution, 'item'): solution = solution.item()
+        # --- SAFETY NET: Find the answer even if variable name is wrong ---
+        if "solution" in scope:
+            solution = scope["solution"]
+        elif "answer" in scope:
+            # Fallback: The LLM often names the variable 'answer'
+            solution = scope["answer"]
+        elif "result" in scope:
+            solution = scope["result"]
+        elif "secret_code" in scope:
+            solution = scope["secret_code"]
+        else:
+            print("ERROR: No solution variable found.")
+            return None
+            
+        # Handle numpy types
+        if hasattr(solution, 'item'): 
+            solution = solution.item()
+            
         return solution
 
     except Exception as e:
