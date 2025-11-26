@@ -44,7 +44,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     STRICT RULES:
     1. **NO NETWORK:** Do NOT use `requests`. Use `io.StringIO(file_summary)` for CSVs.
-    2. **NO LAZY SIMULATIONS:** Never write `# Simulating calculation`. You MUST re-implement the actual logic found in the provided text.
+    2. **NO HALLUCINATIONS:** Do NOT use `demo2_key` or `7919` unless explicitly in the text.
     3. **SYNCHRONOUS ONLY:** No `async`/`await`.
     
     SCENARIO DETECTOR:
@@ -54,21 +54,21 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     **B. HYBRID TASK (Audio + CSV + JS):**
        - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT" (e.g. "Sum > Cutoff").
-       - **Step 2 (Cutoff):** - The transcript or page will mention a function (e.g. `emailNumber`).
-         - **CRITICAL:** You MUST find the definition of `emailNumber` in the "IMPORTED FILE" section (utils.js) and implement it in Python 1:1.
-         - **DO NOT** use `hash()` or random math. Use `hashlib.sha1` if the JS uses sha1.
+       - **Step 2 (Cutoff):** - If page mentions `emailNumber` or `cutoff`, implement JS logic from "IMPORTED FILE" 1:1.
+         - **DO NOT** use `hash()` or random math. Use `hashlib.sha1`.
        - **Step 3 (Data):** Read CSV from `file_summary` string.
        - **Step 4 (Solve):** Filter and sum. `solution = int(result)`.
     
     **C. JS LOGIC (Secret Code):**
        - Implement JS logic (from "IMPORTED FILE") in Python.
-       - If `utils.js` uses `sha1`, use `hashlib.sha1`.
-       - Do NOT use `demo2_key` or `7919` unless explicitly seen.
+       - Use `hashlib.sha1` if needed.
+       - `solution = calculated_code`
     
     **D. SIMPLE PLACEHOLDER:**
        - If sample says "anything", `solution = "anything you want"`.
 
     **OUTPUT:**
+    - **MUST** define a variable named `solution` at the end.
     - Return ONLY Python code.
     """
     
@@ -96,10 +96,24 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         
         exec(code, scope, scope)
         
-        # Final Check
-        solution = scope.get("solution")
-        if hasattr(solution, 'item'): solution = solution.item()
-        
+        # --- SAFETY NET: Find the answer even if variable name is wrong ---
+        if "solution" in scope:
+            solution = scope["solution"]
+        elif "answer" in scope:
+            # Fallback: The LLM often names the variable 'answer'
+            solution = scope["answer"]
+        elif "result" in scope:
+            solution = scope["result"]
+        elif "secret_code" in scope:
+            solution = scope["secret_code"]
+        else:
+            print("ERROR: No solution variable found.")
+            return None
+            
+        # Handle numpy types
+        if hasattr(solution, 'item'): 
+            solution = solution.item()
+            
         return solution
 
     except Exception as e:
