@@ -1,116 +1,94 @@
-TDS Project 2: Autonomous LLM Quiz Agent 🤖
-An intelligent, fully automated AI agent capable of solving complex, multi-step data science quizzes. Built for the Tools in Data Science (TDS) course at IIT Madras.
+# TDS Project 2: Autonomous LLM Analysis Agent
 
-This agent uses FastAPI for handling webhooks and OpenAI (GPT-4o-mini) as the reasoning engine to perform tasks involving web scraping, audio transcription, data analysis, and logic translation.
+An autonomous AI agent built with **FastAPI** and **OpenAI** capable of solving multi-step data science quizzes. This agent performs web scraping, data analysis, audio transcription, and image generation without human intervention.
 
-🚀 Key Capabilities
-This agent is designed to handle a specific "Looping Quiz" format, capable of:
+## Features
 
-🕵️‍♂️ Advanced Web Scraping: Handles dynamic HTML and recursively fetches external resources (JavaScript imports, linked files).
+* **Multi-Modal Capabilities:**
+    * **Web Scraping:** Recursively fetches HTML, JavaScript imports, and hidden data using `httpx` and Regex.
+    * **Audio Processing:** Uses **OpenAI Whisper** to transcribe audio instructions (`.opus`/`.mp3`) on the fly.
+    * **Data Analysis:** Parses CSVs in-memory using `pandas` and performs statistical/math operations.
+    * **Visualization:** Generates charts using `matplotlib` and returns them as Base64 strings.
+* **Advanced Resilience:**
+    * **Anti-Hallucination Guardrails:** Custom sanitization logic (`agent.py`) that detects and neutralizes LLM hallucinations (e.g., inventing constants like `7919`).
+    * **Recursive Script Fetching:** Automatically downloads and analyzes external JavaScript files (`utils.js`) to understand page logic.
+    * **Memory Optimization:** Handles CSVs as streams to prevent memory crashes on limited environments (like Render Free Tier).
+* **Asynchronous Architecture:** Built on `FastAPI` with background tasks to handle long-running logic while satisfying immediate HTTP response requirements.
 
-🧠 Logic Translation (JS to Python): Reads JavaScript logic files (e.g., utils.js), translates them into Python, and executes them to reverse-engineer secret codes.
+## Tech Stack
 
-🛡️ Hallucination Guardrails: Implements a custom Code Sanitizer that neutralizes common LLM hallucinations (e.g., preventing the use of training-data constants like 7919 or demo2_key when they aren't present in the source).
+* **Python 3.11+**
+* **FastAPI / Uvicorn** (API Server)
+* **OpenAI API** (GPT-4o-mini for logic, Whisper-1 for audio)
+* **Pandas / Numpy** (Data Processing)
+* **Httpx** (Async HTTP Client)
+* **Matplotlib / Seaborn** (Visualization)
 
-🎧 Audio Processing: Detects audio instructions, transcribes them using OpenAI Whisper, and applies the spoken rules to data analysis tasks.
+## 📂 Project Structure
 
-📊 Data Analysis & Visualization: Parses raw CSV data (handling TypeErrors and formatting) and generates visualizations using Matplotlib/Seaborn.
-
-⚡ Asynchronous Architecture: Built on FastAPI with BackgroundTasks to ensure immediate HTTP 200 responses while processing long-running solver tasks.
-
-📂 Project Structure
-Bash
-
+```text
 .
-├── agent.py         # The "Brain": Prompts, Code Generation, and Sanitization Logic
-├── config.py        # Configuration and Environment Variables
-├── main.py          # FastAPI Application and Recursive Solver Loop
-├── utils.py         # "Tools": Recursive Fetching, Audio Transcription, Decoding
-├── requirements.txt # Dependencies
+├── agent.py         # The "Brain": LLM logic, code generation, and sanitization
+├── config.py        # Environment variables and configuration
+├── main.py          # The "Coordinator": FastAPI endpoints and loop management
+├── utils.py         # The "Tools": Scraping, downloading, and audio transcription
+├── requirements.txt # Python dependencies
 └── README.md        # Documentation
-🛠️ Architecture & Logic Flow
-Trigger: The agent receives a POST request with a Quiz URL.
+⚙️ Installation & Setup
+Clone the repository:
 
-Fetch & Enrich: utils.py scrapes the page. It recursively follows <script src="..."> and import ... from statements to build a complete context of the problem.
-
-Analyze: The agent determines the task type:
-
-Scenario A: Simple Placeholder submission.
-
-Scenario B: JavaScript Logic puzzle (Crypto/Math).
-
-Scenario C: Hybrid Task (Audio instructions + CSV Data).
-
-Code Generation: The LLM generates a Python script to solve the problem.
-
-Sanitization: The Nuclear Sanitizer strips network calls, enforces synchronous execution, and surgically removes hallucinated math logic.
-
-Execution: The sanitized code is executed in a constrained local scope.
-
-Submission: The calculated solution is POSTed back to the evaluation server.
-
-⚙️ Setup & Installation
-Prerequisites
-Python 3.9+
-
-An OpenAI API Key
-
-1. Clone the Repository
 Bash
 
-git clone https://github.com/22f3000879/tds-project-2-Aryan.git
+git clone [https://github.com/22f3000879/tds-project-2-Aryan.git](https://github.com/yourusername/tds-project-2.git)
 cd tds-project-2-Aryan
-2. Install Dependencies
+Install dependencies:
+
 Bash
 
 pip install -r requirements.txt
-3. Configure Environment
-Create a .env file (or set system environment variables):
+Set up Environment Variables: Create a .env file (or set in your OS/Cloud provider):
 
-Bash
+Code snippet
 
 OPENAI_API_KEY=sk-your-api-key-here
-# Student details are configured in config.py or can be added here
-4. Run Locally
+AIPROXY_TOKEN=your-token (if using a proxy)
+Note: You must also update config.py with your Student Email and Secret.
+
+🏃‍♂️ Usage
+Running Locally
+Start the server using Uvicorn:
+
 Bash
 
 uvicorn main:app --reload
-The server will start at http://localhost:8000.
+The server will start at http://127.0.0.1:8000.
 
-☁️ Deployment
-This project is optimized for deployment on Render.
+API Endpoints
+POST /
+Triggers the quiz solving process. Payload:
 
-Connect your GitHub repository to Render.
-
-Set the Build Command: pip install -r requirements.txt
-
-Set the Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
-
-Add the OPENAI_API_KEY in the Environment Variables settings.
-
-Important: Set PYTHONUNBUFFERED to 1 in environment variables to see real-time logs.
-
-🧪 Testing
-You can test the agent using the REST Client or cURL:
-
-HTTP
-
-POST https://your-app-url.onrender.com/
-Content-Type: application/json
+JSON
 
 {
-    "email": "your-student-email",
-    "secret": "your-secret",
-    "url": "https://tds-llm-analysis.s-anand.net/demo"
+  "email": "your_email@ds.study.iitm.ac.in",
+  "secret": "your_secret_code",
+  "url": "[https://tds-llm-analysis.s-anand.net/demo](https://tds-llm-analysis.s-anand.net/demo)"
 }
-🛡️ Guardrails & Security
-To ensure the agent behaves correctly during evaluation, agent.py includes a Sanitizer that:
+GET /
+Health check endpoint. Returns status 200 if the agent is active.
 
-Blocks Network Calls: Prevents the generated Python code from using requests (the agent calculates locally).
+🧠 How It Works
+Receive Task: The API receives a starting URL.
 
-Enforces Sync: Converts async/await logic to synchronous Python to prevent SyntaxError in exec().
+Fetch & Decode: utils.py fetches the HTML. It uses Regex to find hidden atob() content, downloads external scripts (<script src="...">), and transcribes any audio instructions (<audio>).
 
-Anti-Hallucination: If the LLM attempts to use logic from previous course iterations (e.g., multiplying by 7919) that isn't present in the current source text, the sanitizer detects and neutralizes the math to ensure the correct answer is derived from the provided files.
+Analyze: agent.py uses the LLM to determine the task type (Simple Answer, JS Logic, or Audio/CSV).
 
-📄 License
+Generate Code: The LLM generates a Python script to solve the specific problem.
+
+Sanitize & Execute: The code is passed through a Sanitizer to remove network calls and fix known hallucinations (like fake math formulas). It is then executed in a secure local scope.
+
+Submit: The result is POSTed back to the server. If correct, the agent proceeds to the next step automatically.
+
+🛡️ License
 This project is licensed under the MIT License.
