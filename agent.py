@@ -21,27 +21,12 @@ def analyze_task(decoded_html: str):
         return json.loads(content.strip())
     except: return None
 
-def sanitize_code(code: str, context: str):
-    """
-    Cleans code and neutralizes hallucinations.
-    """
-    # 1. Remove Network stuff
+def sanitize_code(code: str):
     code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
-    
-    # 2. NEUTRALIZE HALLUCINATED MATH
-    # The LLM loves to multiply by 7919. If 7919 isn't in the real file, we turn it into 1.
-    if "7919" in code and "7919" not in context:
-        print("DEBUG: Neutralizing hallucinated math (7919 -> 1)")
-        code = code.replace("7919", "1")
-        code = code.replace("12345", "0")
-        code = code.replace("% 100000000", "")
-        
-    # 3. Function Replacement (Safety)
-    if "demo2_key" in code and "demo2_key" not in context:
-         code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
-
+    if "demo2_key" in code and "7919" not in code: 
+        code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
     return code
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
@@ -58,19 +43,32 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:10000]}
     
     STRICT RULES:
-    1. **SCENARIO A (Anything):** If JSON sample says "answer": "anything", write: `solution = "anything you want"`
+    1. **NO NETWORK:** Do NOT use `requests`. Use `io.StringIO(file_summary)` for CSVs.
+    2. **NO LAZY SIMULATIONS:** Never write `# Simulating calculation`. You MUST re-implement the actual logic found in the provided text.
+    3. **SYNCHRONOUS ONLY:** No `async`/`await`.
     
-    2. **SCENARIO B (JS Logic):** - Implement logic from "IMPORTED FILE" 1:1.
-       - **CRITICAL:** If `utils.js` calculates a number (e.g. via sha1), THAT NUMBER IS THE ANSWER.
-       - Do **NOT** perform extra multiplication (like `* 7919`) unless it is WRITTEN in the `utils.js` file provided above.
+    SCENARIO DETECTOR:
     
-    3. **SCENARIO C (Audio/CSV):**
-       - Read "AUDIO TRANSCRIPT" for the rule.
-       - Use `io.StringIO(file_summary)` for CSVs.
-       - `solution = int(result)` (Convert numpy types).
+    **A. VISUALIZATION / ML:**
+       - Use `matplotlib`/`sklearn`. Convert plots to Base64 string.
+    
+    **B. HYBRID TASK (Audio + CSV + JS):**
+       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT" (e.g. "Sum > Cutoff").
+       - **Step 2 (Cutoff):** - The transcript or page will mention a function (e.g. `emailNumber`).
+         - **CRITICAL:** You MUST find the definition of `emailNumber` in the "IMPORTED FILE" section (utils.js) and implement it in Python 1:1.
+         - **DO NOT** use `hash()` or random math. Use `hashlib.sha1` if the JS uses sha1.
+       - **Step 3 (Data):** Read CSV from `file_summary` string.
+       - **Step 4 (Solve):** Filter and sum. `solution = int(result)`.
+    
+    **C. JS LOGIC (Secret Code):**
+       - Implement JS logic (from "IMPORTED FILE") in Python.
+       - If `utils.js` uses `sha1`, use `hashlib.sha1`.
+       - Do NOT use `demo2_key` or `7919` unless explicitly seen.
+    
+    **D. SIMPLE PLACEHOLDER:**
+       - If sample says "anything", `solution = "anything you want"`.
 
     **OUTPUT:**
-    - **MUST** define a variable named `solution` at the end.
     - Return ONLY Python code.
     """
     
@@ -84,22 +82,24 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
         
-        # --- INTELLIGENT SANITIZATION ---
-        code = sanitize_code(code, file_summary)
-        print(f"DEBUG: Final Python Code:\n{code}")
+        code = sanitize_code(code)
+        print(f"DEBUG: Sanitized Python Code:\n{code}")
         
-        # Shared Scope
-        scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL, 
-                 "file_summary": file_summary, "page_content": page_content}
+        # Variables for the script
+        scope = {
+            "__builtins__": __builtins__,
+            "import": __import__,
+            "email": STUDENT_EMAIL,
+            "file_summary": file_summary, 
+            "page_content": page_content
+        }
         
         exec(code, scope, scope)
         
-        # --- TYPE SAFETY ---
+        # Final Check
         solution = scope.get("solution")
-        # Fix numpy types for Step 3
-        if hasattr(solution, 'item'): 
-            solution = solution.item()
-            
+        if hasattr(solution, 'item'): solution = solution.item()
+        
         return solution
 
     except Exception as e:
