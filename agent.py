@@ -21,12 +21,30 @@ def analyze_task(decoded_html: str):
         return json.loads(content.strip())
     except: return None
 
-def sanitize_code(code: str):
+def sanitize_code(code: str, context: str):
+    """
+    Cleans code and neutralizes hallucinations by checking against the source context.
+    """
+    # 1. Remove Network stuff
     code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
-    if "demo2_key" in code and "7919" not in code: 
-        code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
+    
+    # 2. NEUTRALIZE HALLUCINATED MATH (The Critical Fix)
+    # The LLM often hallucinates "demo2_key" logic involving 7919 and 12345.
+    # If the code uses 7919 but the downloaded files DO NOT contain 7919...
+    if "7919" in code and "7919" not in context:
+        print("DEBUG: Neutralizing hallucinated math (7919 -> 1)")
+        # We replace the numbers with Identity values (x * 1 + 0 = x)
+        # This preserves the variable names the LLM chose, preventing syntax errors
+        code = code.replace("7919", "1")
+        code = code.replace("12345", "0")
+        code = code.replace("% 100000000", "")
+        
+    # 3. Function Replacement (Safety)
+    if "demo2_key" in code and "demo2_key" not in context:
+         code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
+
     return code
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
@@ -49,22 +67,32 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     SCENARIO DETECTOR:
     
-    **A. VISUALIZATION / ML:**
-       - Use `matplotlib`/`sklearn`. Convert plots to Base64 string.
+    **A. VISUALIZATION (Charts):**
+       - If asked to plot:
+         1. Use `matplotlib.pyplot`.
+         2. Save plot to `io.BytesIO`.
+         3. `solution = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')`
     
-    **B. HYBRID TASK (Audio + CSV + JS):**
-       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT" (e.g. "Sum > Cutoff").
-       - **Step 2 (Cutoff):** - If page mentions `emailNumber` or `cutoff`, implement JS logic from "IMPORTED FILE" 1:1.
-         - **DO NOT** use `hash()` or random math. Use `hashlib.sha1`.
-       - **Step 3 (Data):** Read CSV from `file_summary` string.
-       - **Step 4 (Solve):** Filter and sum. `solution = int(result)`.
+    **B. MACHINE LEARNING / ANALYSIS:**
+       - If asked to cluster or regress:
+         1. Use `sklearn` (e.g., KMeans, LinearRegression).
+         2. Use `pandas` to clean data first.
+         3. `solution = result`
     
-    **C. JS LOGIC (Secret Code):**
+    **C. HYBRID TASK (Audio + CSV + JS):**
+       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT".
+       - **Step 2 (Cutoff):** If transcript/page mentions `emailNumber` or `cutoff`, you MUST calculate it using the JS logic found in "IMPORTED FILE" (usually `utils.js`). Translate JS to Python 1:1.
+       - **Step 3 (Data):** Read CSV from `file_summary` using `pd.read_csv(io.StringIO(file_summary))`.
+       - **Step 4 (Clean):** Ensure columns are numeric: `df[0] = pd.to_numeric(df[0], errors='coerce')`.
+       - **Step 5 (Solve):** Filter and sum. 
+       - **CRITICAL:** `solution = int(result)` (Convert numpy int to python int).
+    
+    **D. JS LOGIC (Secret Code):**
        - Implement JS logic (from "IMPORTED FILE") in Python.
        - Use `hashlib.sha1` if needed.
-       - `solution = calculated_code`
+       - Do NOT use `demo2_key` or `7919` unless seen in text.
     
-    **D. SIMPLE PLACEHOLDER:**
+    **E. SIMPLE PLACEHOLDER:**
        - If sample says "anything", `solution = "anything you want"`.
 
     **OUTPUT:**
@@ -82,8 +110,10 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
         
-        code = sanitize_code(code)
-        print(f"DEBUG: Sanitized Python Code:\n{code}")
+        # --- INTELLIGENT SANITIZATION (The Fix) ---
+        # We pass file_summary to check if 7919 is real or hallucinated
+        code = sanitize_code(code, file_summary)
+        print(f"DEBUG: Final Python Code:\n{code}")
         
         # Variables for the script
         scope = {
@@ -97,22 +127,18 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         exec(code, scope, scope)
         
         # --- SAFETY NET: Find the answer even if variable name is wrong ---
-        if "solution" in scope:
-            solution = scope["solution"]
-        elif "answer" in scope:
-            # Fallback: The LLM often names the variable 'answer'
-            solution = scope["answer"]
-        elif "result" in scope:
-            solution = scope["result"]
-        elif "secret_code" in scope:
-            solution = scope["secret_code"]
-        else:
-            print("ERROR: No solution variable found.")
-            return None
-            
+        solution = None
+        for var in ["solution", "secret_code", "answer", "result"]:
+            if var in scope:
+                solution = scope[var]
+                break
+        
         # Handle numpy types
         if hasattr(solution, 'item'): 
             solution = solution.item()
+            
+        if solution is None:
+            print("ERROR: No solution variable found.")
             
         return solution
 
