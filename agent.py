@@ -37,6 +37,11 @@ def sanitize_code(code: str):
     # The LLM stubbornly writes: (base * 7919 + 12345) % 100000000
     # We replace the numbers to make the math an Identity Operation: (base * 1 + 0)
     # This forces the result to be just 'base' (the correct answer).
+
+    if ".zfill(8)" in code:
+        print("DEBUG: Removing .zfill(8) hallucination.")
+        code = code.replace(".zfill(8)", "")
+        
     if "7919" in code:
         print("DEBUG: Detecting '7919' hallucination. Rewriting math to Identity.")
         code = code.replace("7919", "1")
