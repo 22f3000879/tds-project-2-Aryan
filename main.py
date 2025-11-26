@@ -49,7 +49,7 @@ async def run_quiz_process(start_url: str):
         attempts = 0
         success = False
         
-        while attempts < 3 and not success:
+        while attempts < 5 and not success:
             # Calculate Answer
             answer = solve_question(task_data["question"], file_summary, decoded_text)
             print(f"Calculated Answer (Attempt {attempts+1}): {answer}")
@@ -85,7 +85,7 @@ async def run_quiz_process(start_url: str):
                 attempts += 1
         
         if not success:
-            print("Failed step after 3 attempts. Moving to next URL if possible (unlikely).")
+            print("Failed step after 5 attempts.")
             break
 
 @app.post("/")
