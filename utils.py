@@ -11,6 +11,10 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 def transcribe_audio(audio_url):
     try:
+        # Check if it's actually an image (fallback logic)
+        if audio_url.endswith(('.png', '.jpg', '.jpeg')):
+            return f"IMAGE_URL:{audio_url}"
+            
         print(f"DEBUG: Transcribing audio from {audio_url}...", flush=True)
         response = httpx.get(audio_url, timeout=30)
         response.raise_for_status()
@@ -21,7 +25,7 @@ def transcribe_audio(audio_url):
         )
         return f"\n\n--- AUDIO TRANSCRIPT ({audio_url}) ---\n{transcript.text}\n"
     except Exception as e:
-        print(f"Audio transcription failed: {e}", flush=True)
+        print(f"Audio/Image fetch failed: {e}", flush=True)
         return ""
 
 def try_decode_base64(text: str):
@@ -37,8 +41,7 @@ def try_decode_base64(text: str):
 
 def fetch_external_resources(base_url, text):
     extra_content = ""
-    
-    # 1. Scripts/Imports
+    # Scripts/Imports
     refs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', text) + \
            re.findall(r'from\s+["\']([^"\']+)["\']', text)
     for ref in refs:
@@ -52,14 +55,11 @@ def fetch_external_resources(base_url, text):
                 extra_content += f"\n\n--- NESTED IMPORT ({n}) ---\n{httpx.get(n_url, timeout=10).text}"
         except: pass
 
-    # 2. Audio (Improved: Finds <audio> AND generic links to .opus/.mp3)
-    audio_srcs = re.findall(r'src=["\']([^"\']+\.(?:opus|mp3|wav))["\']', text) + \
-                 re.findall(r'href=["\']([^"\']+\.(?:opus|mp3|wav))["\']', text)
-    
-    # Remove duplicates
-    audio_srcs = list(set(audio_srcs))
-    
-    for src in audio_srcs:
+    # Audio & Images
+    media_srcs = re.findall(r'<audio[^>]+src=["\']([^"\']+)["\']', text) + \
+                 re.findall(r'src=["\']([^"\']+\.(?:png|jpg|jpeg))["\']', text)
+                 
+    for src in media_srcs:
         extra_content += transcribe_audio(urljoin(base_url, src))
             
     return extra_content
@@ -75,10 +75,13 @@ def parse_file_content(file_url: str):
         if "$EMAIL" in file_url: file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
         resp = httpx.get(file_url, timeout=30)
         
-        # If the "file" IS an audio file, transcribe it immediately
-        if file_url.endswith((".opus", ".mp3", ".wav")):
-             return transcribe_audio(file_url)
-
+        # --- IMAGE HANDLING ---
+        if file_url.endswith(('.png', '.jpg', '.jpeg')):
+            # Return as Base64 string so Python can read it
+            b64 = base64.b64encode(resp.content).decode('utf-8')
+            return f"IMAGE_BASE64:{b64}"
+            
+        # CSV Handling
         if "csv" in resp.headers.get("Content-Type", "") or file_url.endswith(".csv"):
             return resp.text 
         
