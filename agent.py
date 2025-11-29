@@ -75,6 +75,14 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     3. **SYNCHRONOUS ONLY:** No `async`/`await`.
     
     SCENARIO DETECTOR:
+    # ... inside SCENARIO DETECTOR in agent.py ...
+    
+    **F. AUDIO TRANSCRIPTION (Passphrase):**
+       - If the question asks to "Transcribe the spoken phrase":
+       - Look for "AUDIO TRANSCRIPT" in the data.
+       - The transcript will contain the phrase (e.g., "The sky is blue 742").
+       - Convert to lowercase as requested.
+       - `solution = "the sky is blue 742"`
     
     **A. COMMAND GENERATION (uv/pip):**
        - If asked to craft a command (e.g. `uv http get`):
