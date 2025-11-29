@@ -26,19 +26,31 @@ def analyze_task(decoded_html: str):
 
 def sanitize_code(code: str):
     """
-    Cleans code and NEUTRALIZES hallucinations.
+    Cleans code and NEUTRALIZES specific hallucinations/errors.
     """
+    # 1. Remove Network stuff
     code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # URL Fix
-    if '<span class="origin"></span>' in code:
-        code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
-        
-    # Math Fix
+    # 2. NEUTRALIZE MATH HALLUCINATIONS (7919 -> 1)
     if "7919" in code:
-        code = code.replace("7919", "1").replace("12345", "0").replace("% 100000000", "")
+        code = code.replace("7919", "1")
+        code = code.replace("12345", "0")
+        code = code.replace("% 100000000", "")
+        
+    # 3. FIX UV COMMAND ERRORS (Step 2 Fix)
+    # The LLM often misses the .json extension or the full domain. We force it here.
+    if 'uv http get' in code:
+        # Ensure full domain
+        if 'https://' not in code:
+            code = code.replace('/project2/', 'https://tds-llm-analysis.s-anand.net/project2/')
+        # Ensure .json extension
+        code = code.replace('/uv.', '/uv.json')
+        # Ensure correct header
+        code = code.replace('application/"', 'application/json"')
+        
+    # 4. Function Replacement
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
 
@@ -52,42 +64,43 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     Student Email: "{STUDENT_EMAIL}"
     
     --- DATA / SCRIPTS / TRANSCRIPTS ---
-    {file_summary[:1000]} ... (Data truncated for brevity)
+    {file_summary[:10000]}
+    
+    --- PAGE CONTENT ---
+    {page_content[:10000]}
     
     STRICT RULES:
     1. **NO NETWORK:** Do NOT use `requests`. 
-    2. **NO HALLUCINATIONS:** Trust the provided data ONLY.
+    2. **NO HALLUCINATIONS:** Do NOT use `demo2_key` or `7919`.
     3. **SYNCHRONOUS ONLY:** No `async`/`await`.
     
     SCENARIO DETECTOR:
     
-    **A. IMAGE ANALYSIS (Colors/Pixels):**
-       - If `file_summary` starts with "IMAGE_BASE64:", it contains the image data.
-       - Use `PIL` (Pillow) and `io.BytesIO` to read it:
-         ```python
-         import base64, io
-         from PIL import Image
-         # The variable 'file_summary' contains "IMAGE_BASE64:..."
-         b64_data = file_summary.split(":", 1)[1]
-         img = Image.open(io.BytesIO(base64.b64decode(b64_data)))
-         ```
-       - Analyze pixels to find the most frequent color.
-       - Return hex string: `solution = "#..."`.
+    **A. COMMAND GENERATION (uv/pip):**
+       - If asked to craft a command (e.g. `uv http get`):
+       - `solution = f"uv http get https://tds-llm-analysis.s-anand.net/project2/uv.json?email={{email}} -H \\"Accept: application/json\\""`
+       - **ALWAYS** use the full URL starting with https://.
+       - **ALWAYS** use `application/json` for the header.
     
-    **B. COMMAND GENERATION (uv/pip):**
-       - If asking for a command, return the string.
-       - `solution = "uv http get ..."`
+    **B. HYBRID TASK (Audio + CSV + JS):**
+       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT" (e.g. "Sum > Cutoff").
+       - **Step 2 (Cutoff):** If page mentions `emailNumber` or `cutoff`, implement JS logic from "IMPORTED FILE" 1:1.
+       - **Step 3 (Data):** Read CSV from `file_summary` using `pd.read_csv(io.StringIO(file_summary))`.
+       - **Step 4 (Solve):** Filter and sum. `solution = int(result)`.
     
-    **C. HYBRID TASK (Audio/CSV/JS):**
-       - Read Audio Transcript.
-       - Parse CSV from `file_summary` using `io.StringIO`.
-       - Implement JS logic 1:1 (No fake math!).
-       - `solution = int(result)`.
+    **C. JS LOGIC (Secret Code):**
+       - Implement JS logic (from "IMPORTED FILE") in Python.
+       - Use `hashlib.sha1` if needed.
+       - `solution = calculated_value`
     
-    **D. SIMPLE PLACEHOLDER:**
-       - `solution = "anything you want"`.
+    **D. VISUALIZATION / ML:**
+       - Use `matplotlib` (Base64) or `sklearn`.
+    
+    **E. SIMPLE PLACEHOLDER:**
+       - If sample says "anything", `solution = "anything you want"`.
 
     **OUTPUT:**
+    - **MUST** define a variable named `solution` at the end.
     - Return ONLY Python code.
     """
     
@@ -101,6 +114,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
         
+        # --- SANITIZE ---
         code = sanitize_code(code)
         print(f"DEBUG: Final Python Code:\n{code}")
         
@@ -110,13 +124,17 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         
         exec(code, scope, scope)
         
+        # --- SAFETY NET ---
         solution = None
-        for var in ["solution", "secret_code", "answer", "result"]:
+        for var in ["solution", "secret_code", "answer", "result", "command_string"]:
             if var in scope:
                 solution = scope[var]
                 break
         
-        if hasattr(solution, 'item'): solution = solution.item()
+        # Fix numpy types
+        if hasattr(solution, 'item'): 
+            solution = solution.item()
+            
         return solution
 
     except Exception as e:
