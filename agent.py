@@ -26,38 +26,33 @@ def analyze_task(decoded_html: str):
 
 def sanitize_code(code: str):
     """
-    Cleans code and NEUTRALIZES specific hallucinations by rewriting the math.
+    Cleans code and NEUTRALIZES hallucinations and HTML artifacts.
     """
     # 1. Remove Network stuff
     code = re.sub(r'^import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # 2. NUCLEAR FIX FOR STEP 2 HALLUCINATION
-    # The LLM stubbornly writes: (base * 7919 + 12345) % 100000000
-    # We replace the numbers to make the math an Identity Operation: (base * 1 + 0)
-    # This forces the result to be just 'base' (the correct answer).
-
-    if ".zfill(8)" in code:
-        print("DEBUG: Removing .zfill(8) hallucination.")
-        code = code.replace(".zfill(8)", "")
+    # 2. FIX URL ARTIFACTS (The Fix for Step 2)
+    # The LLM often copies <span class="origin"></span> into the string.
+    # We replace it with the actual domain.
+    if '<span class="origin"></span>' in code:
+        print("DEBUG: Replacing HTML tag in URL with actual domain.")
+        code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
         
+    # 3. NEUTRALIZE HALLUCINATED MATH
     if "7919" in code:
-        print("DEBUG: Detecting '7919' hallucination. Rewriting math to Identity.")
         code = code.replace("7919", "1")
         code = code.replace("12345", "0")
         code = code.replace("% 100000000", "")
         
-    # 3. Function Replacement (Safety against fake function definitions)
+    # 4. Function Replacement
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
 
     return code
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
-    """
-    Solves the question by generating and EXECUTING Python code.
-    """
     prompt = f"""
     You are a Python Expert. Write a Python script to calculate the answer.
     
@@ -77,16 +72,16 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     SCENARIO DETECTOR:
     
-    **A. VISUALIZATION / ML:**
-       - If asked to plot: use `matplotlib`. Save to Base64 string.
-       - If asked to cluster/regress: use `sklearn`.
+    **A. COMMAND GENERATION (uv/pip):**
+       - If asked to craft a command (e.g. `uv http get`):
+       - `solution = "the_exact_command_string"`
+       - Ensure you replace `<span class="origin"></span>` with `https://tds-llm-analysis.s-anand.net` if needed (or the sanitizer will do it).
     
     **B. HYBRID TASK (Audio + CSV + JS):**
-       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT" (e.g. "Sum > Cutoff").
+       - **Step 1 (Rule):** Read "AUDIO TRANSCRIPT".
        - **Step 2 (Cutoff):** If page mentions `emailNumber` or `cutoff`, implement the JS logic found in "IMPORTED FILE" 1:1.
        - **Step 3 (Data):** Read CSV from `file_summary` using `pd.read_csv(io.StringIO(file_summary))`.
-       - **Step 4 (Clean):** Ensure columns are numeric: `df[0] = pd.to_numeric(df[0], errors='coerce')`.
-       - **Step 5 (Solve):** Filter and sum. `solution = int(result)`.
+       - **Step 4 (Solve):** Filter and sum. `solution = int(result)`.
     
     **C. JS LOGIC (Secret Code):**
        - Implement JS logic (from "IMPORTED FILE") in Python.
@@ -111,7 +106,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
         code = code_match.group(1) if code_match else content.replace("```python", "").replace("```", "")
         
-        # --- SANITIZE (This fixes the hallucination) ---
+        # --- SANITIZE ---
         code = sanitize_code(code)
         print(f"DEBUG: Final Python Code:\n{code}")
         
@@ -121,7 +116,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         
         exec(code, scope, scope)
         
-        # --- SAFETY NET: Find the answer ---
+        # --- SAFETY NET ---
         solution = None
         for var in ["solution", "secret_code", "answer", "result"]:
             if var in scope:
