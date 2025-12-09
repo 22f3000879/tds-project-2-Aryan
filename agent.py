@@ -12,7 +12,9 @@ def analyze_task(decoded_html: str):
     """
     prompt = f"""
     You are a scraper parser. Extract strictly valid JSON.
-    Keys: "question", "submit_url", "file_url".
+    Keys: "question", "submit_url", "file_url" (if explicit).
+    
+    NOTE: If comparing two files, put the FIRST file in "file_url".
     CONTENT: {decoded_html[:20000]}
     """
     try:
@@ -26,21 +28,24 @@ def analyze_task(decoded_html: str):
 
 def sanitize_code(code: str):
     """
-    Sanitizes code but ALLOWS requests (needed for API tasks like gh-tree).
+    Sanitizes code. Aggressively removes network calls.
     """
-    # We NO LONGER ban requests, as project2-gh-tree needs it.
+    # 1. Remove Network stuff (Improved Regex to catch '  import requests')
+    code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
+    code = re.sub(r'^\s*from requests import.*$', '', code, flags=re.MULTILINE)
+    code = re.sub(r'^\s*import urllib.*$', '', code, flags=re.MULTILINE)
+    
+    # 2. Async Fix
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # URL Fix (Step 2 uv command)
+    # 3. URL Fix (Step 2 uv command)
     if '<span class="origin"></span>' in code:
         code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
         
-    # Math Fix (Step 2 Secret Code)
+    # 4. Math Fix (Step 2 Secret Code)
     if "7919" in code:
-        # Safety net: only remove if it seems to be the specific hallucination
         code = code.replace("7919", "1").replace("12345", "0").replace("% 100000000", "")
-    
-    # Legacy Function Replacement
+        
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
 
@@ -59,26 +64,51 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     --- PAGE INSTRUCTIONS ---
     {page_content[:15000]}
     
-    CAPABILITIES & RULES:
-    1. **DATA SOURCES:**
-       - **Text/JSON/CSV/YAML:** Provided directly in `file_summary`. Use `io.StringIO` or `json.loads`.
-       - **Images/ZIP:** Provided as `BASE64:...`. Use `base64`, `io.BytesIO`, `PIL`, or `zipfile`.
-       - **External APIs:** You MAY use `requests.get()` if the question explicitly asks to query an API (e.g. GitHub).
+    STRICT RULES:
+    1. **NO NETWORK:** Do NOT use `requests`. Do NOT try to simulate a POST submission.
+    2. **IMAGES/ZIPS:** Provided as `BASE64:...`. Use `base64`, `io.BytesIO`, `PIL`, `zipfile`.
+    3. **OUTPUT:** Must define `solution` variable.
     
-    2. **SCENARIOS:**
-       - **MATH/OPTIMIZATION (Rate/Shards):** Parse the JSON constraints. Write a loop/calculation to find the optimal values. Return the number or JSON object.
-       - **DATA ANALYSIS (F1/Orders/Logs/Invoice):**
-         - **F1:** Use `sklearn.metrics` or manual calc. Return JSON `{{...}}`.
-         - **Logs (ZIP):** Decode Base64 -> Unzip in memory -> Parse lines -> Count.
-         - **Orders (CSV):** Parse CSV -> Pandas -> Filter/Sort -> JSON.
-         - **Invoice (PDF):** Text provided in DATA. Extract numbers using Regex -> Sum.
-       - **VISUALIZATION (Heatmap/Diff):** Decode Base64 Image -> PIL -> Analyze pixels.
-       - **COMMANDS (Git/UV):** Return the exact command string. Use full URLs.
-       - **JS LOGIC (Secret Code):** Implement the JS logic found in "IMPORTED FILE". Use `hashlib`.
+    SCENARIO DETECTOR (Check which applies):
     
-    3. **OUTPUT:**
-       - Define `solution` variable with the result (int, str, dict, list).
-       - Return ONLY Python code.
+    **A. SIMPLE PLACEHOLDER:**
+       - If sample says "answer": "anything" (or similar), STOP.
+       - WRITE ONLY: `solution = "anything you want"`
+    
+    **B. COMMANDS (Git / UV):**
+       - If asked to craft a command string.
+       - `solution = "the string"`.
+    
+    **C. VISUALIZATION (Diff / Heatmap):**
+       - Task: "Compare images" or "Most frequent color".
+       - Logic: Decode Base64 -> PIL Image -> Analyze pixels.
+       - Diff: Count pixels where `p1 != p2`.
+       - Heatmap: `Counter(img.getdata()).most_common(1)`.
+       - `solution = "#hexcolor"` or `int(count)`.
+    
+    **D. MATH / OPTIMIZATION (Shards / Rate):**
+       - Task: "Read constraints from json".
+       - Logic: Parse JSON. Write Python loop to find optimal values.
+    
+    **E. DATA ANALYSIS (F1 / Logs / CSV / Invoice):**
+       - **F1:** Use `sklearn.metrics` or manual formula. `solution = {{...}}`.
+       - **Logs (ZIP):** Decode Base64 -> Unzip -> Sum bytes.
+       - **Orders (CSV):** Parse CSV -> Pandas -> Filter -> JSON list.
+       - **Invoice (PDF):** Extract text -> Regex -> Sum numbers.
+    
+    **F. EMBEDDINGS (Email Length):**
+       - Task: "Choose pair based on email length".
+       - Logic: `if len(email) % 2 == 0: ...`
+    
+    **G. JS LOGIC (Secret Code):**
+       - Implement JS logic (`emailNumber`) 1:1 using `hashlib`.
+       - `solution = calculated_value`
+    
+    **H. AUDIO TRANSCRIPT:**
+       - If "AUDIO TRANSCRIPT" exists, apply the math rule to the CSV.
+
+    **OUTPUT:**
+    - Return ONLY the Python code block.
     """
     
     try:
@@ -100,14 +130,12 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         
         exec(code, scope, scope)
         
-        # Result Retrieval
         solution = None
         for var in ["solution", "secret_code", "answer", "result", "command_string", "hex_color"]:
             if var in scope:
                 solution = scope[var]
                 break
         
-        # Fix numpy types
         if hasattr(solution, 'item'): solution = solution.item()
         return solution
 
