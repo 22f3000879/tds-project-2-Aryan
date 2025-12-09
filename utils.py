@@ -11,7 +11,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 def transcribe_audio(audio_url):
     try:
-        print(f"DEBUG: Transcribing audio from {audio_url}...", flush=True)
+        print(f"DEBUG: Transcribing audio from {audio_url}", flush=True)
         response = httpx.get(audio_url, timeout=30)
         response.raise_for_status()
         audio_file = BytesIO(response.content)
