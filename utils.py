@@ -21,53 +21,72 @@ def transcribe_audio(audio_url):
         )
         return f"\n\n--- AUDIO TRANSCRIPT ({audio_url}) ---\n{transcript.text}\n"
     except Exception as e:
-        print(f"Audio transcription failed: {e}", flush=True)
+        print(f"Audio error: {e}")
         return ""
 
 def try_decode_base64(text: str):
+    # Decodes the hidden instructions in legacy Step 2
     candidates = re.findall(r'[`\'"]([A-Za-z0-9+/=\s]{100,})[`\'"]', text)
     if candidates:
         encoded = max(candidates, key=len)
         try:
             decoded = base64.b64decode(encoded).decode('utf-8')
             return decoded.replace("$EMAIL", STUDENT_EMAIL)
-        except:
-            pass
+        except: pass
     return text
 
-def fetch_external_resources(base_url, text):
-    extra_content = ""
+def fetch_external_resources(base_url, html_content):
+    assets = ""
+    # Find all relevant links
+    patterns = [
+        r'src=["\']([^"\']+\.(?:js|png|jpg|jpeg|opus|mp3|wav|zip))["\']',
+        r'href=["\']([^"\']+\.(?:js|png|jpg|jpeg|opus|mp3|wav|csv|json|yaml|md|zip|pdf))["\']'
+    ]
+    urls = []
+    for p in patterns: urls.extend(re.findall(p, html_content))
+    urls = list(set(urls))
     
-    # 1. Scripts/Imports
-    refs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', text) + \
-           re.findall(r'from\s+["\']([^"\']+)["\']', text)
-    for ref in refs:
-        full_url = urljoin(base_url, ref)
+    for relative_url in urls:
+        full_url = urljoin(base_url, relative_url)
+        filename = full_url.split("/")[-1]
         try:
-            resp = httpx.get(full_url, timeout=10)
-            extra_content += f"\n\n--- IMPORTED FILE ({ref}) ---\n{resp.text}"
-            nested = re.findall(r'from\s+["\']([^"\']+)["\']', resp.text)
-            for n in nested:
-                n_url = urljoin(full_url, n)
-                extra_content += f"\n\n--- NESTED IMPORT ({n}) ---\n{httpx.get(n_url, timeout=10).text}"
-        except: pass
-
-    # 2. Audio (Aggressive Search)
-    # Finds href="file.opus", src="file.opus", "file.opus"
-    audio_extensions = r'[^"\'=\s]+\.(?:opus|mp3|wav)'
-    audio_matches = re.findall(audio_extensions, text)
-    
-    # Filter valid URLs and remove duplicates
-    audio_matches = list(set(audio_matches))
-    
-    for src in audio_matches:
-        # Ignore common false positives like library names if any
-        if "http" not in src and "/" not in src: continue 
-        
-        full_url = urljoin(base_url, src)
-        extra_content += transcribe_audio(full_url)
+            if not filename or filename.startswith("?"): continue
             
-    return extra_content
+            resp = httpx.get(full_url, timeout=20)
+            if resp.status_code != 200: continue
+            
+            # 1. BINARY (Images, ZIPs) -> Base64
+            if filename.endswith(('.png', '.jpg', '.jpeg', '.zip')):
+                b64 = base64.b64encode(resp.content).decode('utf-8')
+                assets += f"\n--- BINARY FILE: {filename} ---\nBASE64:{b64}\n"
+            
+            # 2. AUDIO -> Transcribe
+            elif filename.endswith(('.opus', '.mp3', '.wav')):
+                assets += transcribe_audio(full_url)
+                
+            # 3. PDF -> Text
+            elif filename.endswith('.pdf'):
+                try:
+                    reader = PdfReader(BytesIO(resp.content))
+                    text = "\n".join([p.extract_text() for p in reader.pages])
+                    assets += f"\n--- PDF TEXT: {filename} ---\n{text}\n"
+                except:
+                    assets += f"\n--- PDF ERROR: Could not parse {filename}\n"
+
+            # 4. TEXT DATA (JS, JSON, CSV, MD, YAML)
+            else:
+                text_content = resp.text
+                if filename.endswith(".js"):
+                    # Recursive fetch for JS imports
+                    nested = re.findall(r'from\s+["\']([^"\']+)["\']', text_content)
+                    for n in nested:
+                        try:
+                            assets += f"\n--- JS IMPORT: {n} ---\n{httpx.get(urljoin(full_url, n), timeout=10).text}\n"
+                        except: pass
+                assets += f"\n--- DATA FILE: {filename} ---\n{text_content[:25000]}\n"
+        except: pass
+            
+    return assets
 
 async def fetch_and_decode_page(url: str):
     async with httpx.AsyncClient(timeout=30) as client:
@@ -76,27 +95,17 @@ async def fetch_and_decode_page(url: str):
         return try_decode_base64(resp.text + extras) + "\nRaw Extras:\n" + extras
 
 def parse_file_content(file_url: str):
+    # Fallback for direct links found by LLM logic
     try:
         if "$EMAIL" in file_url: file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
         
-        # --- PRE-FETCH AUDIO ---
-        # If the "file" itself is an audio file (common in Step 5)
-        if file_url.endswith((".opus", ".mp3", ".wav")):
-            return transcribe_audio(file_url)
-            
+        if file_url.endswith(('.opus', '.mp3', '.wav')): return transcribe_audio(file_url)
+        
         resp = httpx.get(file_url, timeout=30)
         
-        # Image Handling
-        if file_url.endswith(('.png', '.jpg', '.jpeg')):
+        if file_url.endswith(('.png', '.jpg', '.zip')):
             b64 = base64.b64encode(resp.content).decode('utf-8')
-            return f"IMAGE_BASE64:{b64}"
+            return f"BINARY_BASE64:{b64}"
             
-        # CSV Handling
-        if "csv" in resp.headers.get("Content-Type", "") or file_url.endswith(".csv"):
-            return resp.text 
-        
-        main_text = resp.text
-        extras = fetch_external_resources(file_url, main_text)
-        return f"SCRAPED CONTENT:\n{try_decode_base64(main_text + extras)[:20000]}"
-    except Exception as e:
-        return f"Error: {e}"
+        return f"FILE CONTENT:\n{resp.text[:20000]}"
+    except Exception as e: return f"Error: {e}"
