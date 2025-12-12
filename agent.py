@@ -39,7 +39,7 @@ def sanitize_code(code: str):
     return code
 
 def solve_question(question: str, file_summary: str, page_content: str = "", feedback: str = ""):
-    # Double curly braces {{ }} used for literal JSON in f-strings
+    # We use f-string, so we use DOUBLE CURLY BRACES {{ }} to escape JSON examples in the prompt
     prompt = f"""
     You are a Senior Data Science Expert. Write a Python script to calculate the answer.
     
@@ -88,7 +88,7 @@ def solve_question(question: str, file_summary: str, page_content: str = "", fee
          4. `img = Image.open(io.BytesIO(base64.b64decode(file_summary)))`
          5. `pixels = list(img.getdata())`
          6. `most_common = Counter(pixels).most_common(1)[0][0]`
-         7. `solution = "#{:02x}{:02x}{:02x}".format(*most_common[:3])`
+         7. `solution = "#{{:02x}}{{:02x}}{{:02x}}".format(*most_common[:3])` 
 
     **PRIORITY 4: GITHUB TREE (Step 8 - API)**
        - **Trigger:** "GitHub API", "/git/trees", "gh-tree".
