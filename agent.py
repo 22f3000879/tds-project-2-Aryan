@@ -7,10 +7,13 @@ from config import OPENAI_API_KEY, OPENAI_MODEL, STUDENT_EMAIL
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def analyze_task(decoded_html: str):
+    """
+    Analyzes the task to extract the question and URLs.
+    """
     prompt = f"""
     You are a scraper parser. Extract strictly valid JSON.
     Keys: "question", "submit_url", "file_url".
-    CONTENT: {decoded_html[:15000]}
+    CONTENT: {decoded_html[:20000]}
     """
     try:
         response = client.chat.completions.create(
@@ -23,28 +26,20 @@ def analyze_task(decoded_html: str):
 
 def sanitize_code(code: str):
     """
-    Sanitizes code to prevent network calls and fix specific URL issues.
+    Sanitizes code. Ensures URLs are correct for the LIVE SERVER.
     """
-    # 1. Remove Network stuff
-    code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
-    code = re.sub(r'^\s*from requests import.*$', '', code, flags=re.MULTILINE)
-    code = re.sub(r'^\s*import urllib.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # 2. LOCALHOST FIX (Critical for your test)
-    # If the LLM generates the online URL, force it to localhost
-    if 'tds-llm-analysis.s-anand.net' in code:
-        code = code.replace('https://tds-llm-analysis.s-anand.net', 'http://127.0.0.1:8787')
+    # 1. FIX UV COMMAND URL (Force Absolute Live URL)
+    # If the Agent writes a relative path '/project2/uv', prepend the live domain.
+    if '/project2/uv' in code and 'https://' not in code:
+        code = code.replace('/project2/uv', 'https://tds-llm-analysis.s-anand.net/project2/uv')
     
-    # 3. SPAN TAG FIX (For the 'uv' command)
-    # The LLM sees <span class="origin"> in the HTML and copies it. We replace it.
-    code = re.sub(r'https?://<span class=\\?["\']origin\\?["\']></span>', 'http://127.0.0.1:8787', code)
+    # 2. REMOVE SPAN ARTIFACTS
+    if '<span class="origin"></span>' in code:
+        code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
 
-    # 4. MATH FIX (For Demo 2 Key)
-    # If the code tries to use 7919 (the Demo 2 constant), we allow it.
-    # We DO NOT replace it with 1 anymore.
-    
-    # 5. Function Replacement (Legacy)
+    # 3. LEGACY FIX (Function Replacement)
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
 
@@ -52,7 +47,7 @@ def sanitize_code(code: str):
 
 def solve_question(question: str, file_summary: str, page_content: str = ""):
     prompt = f"""
-    You are a Python Expert. Write a Python script to calculate the answer.
+    You are a Data Science & Python Expert. Write a Python script to calculate the answer.
     
     QUESTION: {question}
     Student Email: "{STUDENT_EMAIL}"
@@ -63,31 +58,36 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     --- PAGE INSTRUCTIONS ---
     {page_content[:15000]}
     
-    STRICT RULES:
-    1. **NO NETWORK:** Do NOT use `requests`.
-    2. **OUTPUT:** Must define `solution` variable.
+    CAPABILITIES & RULES:
+    1. **DATA SOURCES:**
+       - **Text/JSON/CSV:** Provided in `file_summary`. Use `io.StringIO` or `json.loads`.
+       - **Images/ZIP:** Provided as `BASE64:...`. Use `base64`, `io.BytesIO`, `PIL`, `zipfile`.
+       - **External APIs:** You MAY use `requests.get()` if the task requires API access (e.g. GitHub).
     
-    GUIDELINES:
-    
-    **A. SECRET CODE (Step 2):**
-       - The classic logic is: `int(hashlib.sha1(email.encode()).hexdigest()[:4], 16)`.
-       - Use this unless the JS explicitly says otherwise.
-    
-    **B. UV COMMAND:**
-       - If asked for a `uv` command, use the full Localhost URL:
-       - `solution = "uv http get http://127.0.0.1:8787/project2/uv.json?email={STUDENT_EMAIL} -H \\"Accept: application/json\\""`
-    
-    **C. DEMO 2 CHECKSUM:**
-       - If asked to hash (Key + Blob), you must RE-CALCULATE the key first.
-       - Key Formula: `(int(sha1_hex[:4], 16) * 7919 + 12345) % 100000000`.
-       - Pad it: `.zfill(8)`.
-       - Then: `hashlib.sha256((key + blob).encode()).hexdigest()[:12]`.
-    
-    **D. SIMPLE ANSWER:**
-       - If asked for "anything", `solution = "anything you want"`.
+    2. **SCENARIOS:**
+       - **JS LOGIC (Secret Code):**
+         - **DEFAULT:** Use **SHA-1**: `int(hashlib.sha1(email.encode()).hexdigest()[:4], 16)`.
+         - Only use SHA-256 if `utils.js` explicitly imports `sha256`.
+       
+       - **COMMANDS (UV / Git):**
+         - Return the EXACT command string.
+         - For `uv`, ensure the URL is **ABSOLUTE**: `https://tds-llm-analysis.s-anand.net/...`.
+       
+       - **DEMO 2 (Alphametic):**
+         - Re-calculate key: `(base * 7919 + 12345) % 100000000`.
+         - Checksum: `hashlib.sha256((key + blob).encode()).hexdigest()`.
+         
+       - **DATA ANALYSIS (F1 / Logs / CSV / Invoice):**
+         - **F1:** Use `sklearn.metrics`. Return JSON dict.
+         - **Logs (ZIP):** Decode Base64 -> Unzip -> Sum bytes.
+         - **Invoice (PDF):** Extract text -> Regex -> Sum.
+         
+       - **VISUALIZATION (Heatmap/Diff):**
+         - Decode Base64 -> PIL Image -> Analyze pixels.
 
     **OUTPUT:**
-    - Return ONLY the Python code block.
+    - Define `solution` variable.
+    - Return ONLY Python code.
     """
     
     try:
@@ -104,15 +104,14 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code = sanitize_code(code)
         print(f"DEBUG: Final Python Code:\n{code}")
         
-        # Execute
+        # Shared Scope
         scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL, 
                  "file_summary": file_summary, "page_content": page_content}
         
         exec(code, scope, scope)
         
-        # Retrieve Solution
         solution = None
-        for var in ["solution", "secret_code", "answer", "result"]:
+        for var in ["solution", "secret_code", "answer", "result", "command_string", "hex_color"]:
             if var in scope:
                 solution = scope[var]
                 break
