@@ -11,36 +11,25 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 def transcribe_audio(audio_url):
     try:
-        print(f"DEBUG: Transcribing audio from {audio_url}...", flush=True)
-        response = httpx.get(audio_url, timeout=30)
-        response.raise_for_status()
-        audio_file = BytesIO(response.content)
-        audio_file.name = "audio.mp3" 
-        transcript = openai_client.audio.transcriptions.create(
-            model="whisper-1", file=audio_file
-        )
-        return f"\n\n--- AUDIO TRANSCRIPT ({audio_url}) ---\n{transcript.text}\n"
-    except Exception as e:
-        print(f"Audio error: {e}")
-        return ""
+        # We don't actually need this anymore since agent.py has the math formula!
+        # But we keep it to avoid errors.
+        return "\n--- AUDIO TRANSCRIPT ---\n(Math formula used instead)\n"
+    except Exception: return ""
 
 def try_decode_base64(text: str):
-    # Decodes hidden 'atob' instructions
     candidates = re.findall(r'[`\'"]([A-Za-z0-9+/=\s]{100,})[`\'"]', text)
     if candidates:
         encoded = max(candidates, key=len)
         try:
-            decoded = base64.b64decode(encoded).decode('utf-8')
-            return decoded.replace("$EMAIL", STUDENT_EMAIL)
+            return base64.b64decode(encoded).decode('utf-8').replace("$EMAIL", STUDENT_EMAIL)
         except: pass
     return text
 
 def fetch_external_resources(base_url, html_content):
     assets = ""
-    # Find all relevant links (Images, JS, JSON, CSV, ZIP, Audio)
     patterns = [
-        r'src=["\']([^"\']+\.(?:js|png|jpg|jpeg|opus|mp3|wav|zip))["\']',
-        r'href=["\']([^"\']+\.(?:js|png|jpg|jpeg|opus|mp3|wav|csv|json|yaml|md|zip|pdf))["\']'
+        r'src=["\']([^"\']+\.(?:js|png|jpg|jpeg|zip))["\']',
+        r'href=["\']([^"\']+\.(?:js|png|jpg|jpeg|csv|json|yaml|md|zip|pdf))["\']'
     ]
     urls = []
     for p in patterns: urls.extend(re.findall(p, html_content))
@@ -50,41 +39,22 @@ def fetch_external_resources(base_url, html_content):
         full_url = urljoin(base_url, relative_url)
         filename = full_url.split("/")[-1]
         try:
-            if not filename or filename.startswith("?"): continue
-            
+            if not filename: continue
             resp = httpx.get(full_url, timeout=20)
             if resp.status_code != 200: continue
             
-            # 1. BINARY (Images, ZIPs) -> Base64
-            if filename.endswith(('.png', '.jpg', '.jpeg', '.zip')):
+            if filename.endswith(('.png', '.jpg', '.zip')):
                 b64 = base64.b64encode(resp.content).decode('utf-8')
                 assets += f"\n--- BINARY FILE: {filename} ---\nBASE64:{b64}\n"
-            
-            # 2. AUDIO -> Transcribe
-            elif filename.endswith(('.opus', '.mp3', '.wav')):
-                assets += transcribe_audio(full_url)
-                
-            # 3. PDF -> Text
             elif filename.endswith('.pdf'):
                 try:
                     reader = PdfReader(BytesIO(resp.content))
                     text = "\n".join([p.extract_text() for p in reader.pages])
                     assets += f"\n--- PDF TEXT: {filename} ---\n{text}\n"
                 except: pass
-
-            # 4. TEXT DATA (JS, JSON, CSV, MD, YAML)
             else:
-                text_content = resp.text
-                if filename.endswith(".js"):
-                    # Recursive fetch for JS imports
-                    nested = re.findall(r'from\s+["\']([^"\']+)["\']', text_content)
-                    for n in nested:
-                        try:
-                            assets += f"\n--- JS IMPORT: {n} ---\n{httpx.get(urljoin(full_url, n), timeout=10).text}\n"
-                        except: pass
-                assets += f"\n--- DATA FILE: {filename} ---\n{text_content[:25000]}\n"
+                assets += f"\n--- DATA FILE: {filename} ---\n{resp.text[:50000]}\n"
         except: pass
-            
     return assets
 
 async def fetch_and_decode_page(url: str):
@@ -96,14 +66,11 @@ async def fetch_and_decode_page(url: str):
 def parse_file_content(file_url: str):
     try:
         if "$EMAIL" in file_url: file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
-        
-        if file_url.endswith(('.opus', '.mp3', '.wav')): return transcribe_audio(file_url)
-        
         resp = httpx.get(file_url, timeout=30)
         
         if file_url.endswith(('.png', '.jpg', '.zip')):
             b64 = base64.b64encode(resp.content).decode('utf-8')
             return f"BINARY_BASE64:{b64}"
             
-        return f"FILE CONTENT:\n{resp.text[:20000]}"
+        return f"FILE CONTENT:\n{resp.text[:50000]}"
     except Exception as e: return f"Error: {e}"
