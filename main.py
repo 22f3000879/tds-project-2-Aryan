@@ -16,7 +16,7 @@ async def run_quiz_process(start_url: str):
     if "localhost" in start_url or "127.0.0.1" in start_url:
         base_domain = "http://127.0.0.1:8787"
     
-    while current_url and step_count < 15:
+    while current_url and step_count < 40:
         print(f"\n--- STEP {step_count + 1} processing {current_url} ---")
         
         try:
@@ -52,7 +52,7 @@ async def run_quiz_process(start_url: str):
         feedback = ""  
         last_result = {}
         
-        while attempts < 5 and not success:
+        while attempts < 3 and not success:
             answer = solve_question(task_data["question"], file_summary, decoded_text, feedback)
             print(f"Calculated Answer (Attempt {attempts+1}): {answer}")
             
