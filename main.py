@@ -52,7 +52,7 @@ async def run_quiz_process(start_url: str):
         feedback = ""  
         last_result = {}
         
-        while attempts < 3 and not success:
+        while attempts < 5 and not success:
             answer = solve_question(task_data["question"], file_summary, decoded_text, feedback)
             print(f"Calculated Answer (Attempt {attempts+1}): {answer}")
             
