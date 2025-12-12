@@ -22,28 +22,30 @@ def analyze_task(decoded_html: str):
     except: return None
 
 def sanitize_code(code: str):
-    code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
+    # Allow requests for GitHub API
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # Fix URLs for Live Server
     if '<span class="origin"></span>' in code:
         code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
     
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
     
-    # CRITICAL FIX for Step 7
+    # Fix Hallucination
     if "pd.compat" in code:
         code = code.replace("pd.compat.StringIO", "io.StringIO")
 
     return code
 
-def solve_question(question: str, file_summary: str, page_content: str = ""):
+def solve_question(question: str, file_summary: str, page_content: str = "", feedback: str = ""):
     prompt = f"""
     You are a Data Science Expert. Write a Python script to calculate the answer.
     
     QUESTION: {question}
     Student Email: "{STUDENT_EMAIL}"
+    
+    --- PREVIOUS ATTEMPT FEEDBACK (Fix based on this!) ---
+    {feedback}
     
     --- DATA / ASSETS ---
     {file_summary}
@@ -52,49 +54,50 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:15000]}
     
     STRICT RULES:
-    1. **NO NETWORK:** Do NOT use `requests`. 
-    2. **OUTPUT:** Must define `solution` variable.
+    1. **NO NETWORK:** Default rule. 
+       - **EXCEPTION:** If the task is "GitHub API" or "gh-tree", you MUST use `requests.get()`. DO NOT MOCK DATA.
+    2. **DATA:** `file_summary` contains the REAL content. Use `io.StringIO(file_summary)`.
+    3. **OUTPUT:** Must define `solution` variable.
     
-    SCENARIO DETECTOR (Check which applies - HIGHEST PRIORITY FIRST):
+    SCENARIO DETECTOR (Check which applies):
     
-    **PRIORITY 1: LOGS (Step 9 - ZIP)**
-       - **Trigger:** "Download /project2/logs.zip", "sum bytes".
+    **A. GITHUB API (Step 8):**
+       - **Trigger:** "GitHub API", "gh-tree".
        - **Logic:**
-         1. `z = zipfile.ZipFile(io.BytesIO(base64.b64decode(file_summary)))`
-         2. `fname = z.namelist()[0]` (Get the actual filename dynamically!)
-         3. `df = pd.read_json(z.open(fname), lines=True)`
-         4. Filter `df['event'] == 'download'` and sum `df['bytes']`.
-         5. `solution = int(sum_val + (len(email) % 5))`
+         1. `import requests`
+         2. Parse JSON parameters from `file_summary`.
+         3. Construct URL: `https://api.github.com/repos/{{owner}}/{{repo}}/git/trees/{{sha}}?recursive=1`
+         4. `resp = requests.get(url).json()`
+         5. Count files matching logic.
+         6. `solution = count + offset`
     
-    **PRIORITY 2: INVOICE (Step 10 - PDF)**
-       - **Trigger:** "Invoice", "sum(Quantity * UnitPrice)".
-       - **Logic:** **DO NOT USE PANDAS.** Use Regex to find numbers in the text.
-         1. `items = re.findall(r'(\d+)\s+(\d+\.\d+)', file_summary)` (Matches: int Quantity ... float Price)
-         2. Loop through matches: `total += int(qty) * float(price)`
-         3. `solution = str(round(total, 2))` (or float).
-    
-    **PRIORITY 3: CSV CLEANING (Step 7)**
+    **B. CSV CLEANING (Step 7):**
        - **Trigger:** "Normalize to JSON", "messy.csv".
-       - **Logic:** 1. `df = pd.read_csv(io.StringIO(file_summary))`
+       - **Logic:**
+         1. `df = pd.read_csv(io.StringIO(file_summary))`
          2. Clean keys: `df.columns = [c.strip().lower() for c in df.columns]`
-         3. Clean dates: `pd.to_datetime(df['joined'], format='mixed').dt.strftime('%Y-%m-%d')`
-         4. Sort by `id` ascending.
-         5. `solution = df.to_dict(orient='records')`
-         
-    **PRIORITY 4: AUDIO PASSPHRASE (Step 5)**
-       - **Trigger:** "Transcribe", "spoken phrase".
-       - **Logic:** `solution = "text extracted from AUDIO TRANSCRIPT above"`
+         3. Clean values: Strip whitespace from strings.
+         4. Clean dates: `pd.to_datetime(df['joined'], format='mixed').dt.strftime('%Y-%m-%d')`
+         5. Sort: `df.sort_values('id')`.
+         6. `solution = df.to_dict(orient='records')`
     
-    **PRIORITY 5: CSV MATH (Step 3)**
+    **C. AUDIO PASSPHRASE (Step 5):**
+       - **Trigger:** "Transcribe", "spoken phrase".
+       - **Logic:** `solution = "text from audio transcript"`
+    
+    **D. CSV MATH (Step 3):**
        - **Trigger:** "Download CSV", "cutoff".
        - **Logic:** `cutoff = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16) % 100000`.
        - `df = pd.read_csv(io.StringIO(file_summary), header=None)`. Filter & Sum.
     
-    **PRIORITY 6: DEMO 2 (Alphametic)**
-       - Re-calculate key: `(base * 7919 + 12345) % 100000000`.
-       - Checksum: `hashlib.sha256((key + blob).encode()).hexdigest()`.
-       
-    **PRIORITY 7: COMMANDS (UV / Git)**
+    **E. DEMO 2 (Alphametic / Checksum):**
+       - **Logic:**
+         `base = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16)`
+         `key = str((base * 7919 + 12345) % 100000000).zfill(8)`
+         `solution = hashlib.sha256((key + blob).encode()).hexdigest()[:12]`
+         # Find 'blob' in page text!
+         
+    **F. COMMANDS (UV / Git):**
        - **UV:** `solution = "uv http get https://tds-llm-analysis.s-anand.net/project2/uv.json?email={STUDENT_EMAIL} -H \\"Accept: application/json\\""`
        - **Git:** `solution = "git add env.sample\\ngit commit -m 'chore: keep env sample'"`
 
