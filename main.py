@@ -72,19 +72,16 @@ async def run_quiz_process(start_url: str):
                         last_result = resp.json()
                         print(f"Submission Result: {last_result}")
                         
-                        # --- MODIFIED LOGIC START ---
-                        # If correct OR if the server gave us a Next URL (even if wrong/delayed), we proceed.
-                        if last_result.get("correct") or last_result.get("url"):
-                            print(">>> Success or Next URL received. Proceeding...")
+                        if last_result.get("correct"):
+                            print(">>> Answer Correct!")
                             success = True
                         else:
+                            # Standard Retry Logic
                             reason = last_result.get('reason', 'Unknown Error')
                             print(f"Wrong Answer. Retrying... Reason: {reason}")
                             feedback = f"Previous attempt failed. Server said: {reason}. Fix your code."
                             attempts += 1
                             await asyncio.sleep(1)
-                        # --- MODIFIED LOGIC END ---
-                        
                     except:
                         print(f"Failed to parse JSON. Raw: {resp.text[:100]}")
                         attempts += 1
@@ -93,14 +90,19 @@ async def run_quiz_process(start_url: str):
                 print(f"Submission failed: {e}")
                 attempts += 1
         
-        # Move to next URL
+        # --- FAIL-FORWARD LOGIC ---
+        # Even if success is False, if we have a URL, we proceed.
         next_url = last_result.get("url")
-        if success and next_url:
+        
+        if next_url:
+            if not success:
+                print(f">>> Failed {attempts} attempts, but server provided a NEXT URL. Proceeding...")
+            
             if not next_url.startswith("http"): next_url = urljoin(base_domain, next_url)
             current_url = next_url
             step_count += 1
         else:
-            print("Failed step after 5 attempts and no next URL provided.")
+            print("Failed step after 5 attempts and no next URL provided. Stopping.")
             break
 
 @app.post("/")
