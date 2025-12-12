@@ -30,7 +30,7 @@ def sanitize_code(code: str):
     """
     Sanitizes code. Aggressively removes network calls.
     """
-    # 1. Remove Network stuff (Catch '  import requests' too)
+    # 1. Remove Network stuff
     code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*from requests import.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*import urllib.*$', '', code, flags=re.MULTILINE)
@@ -42,7 +42,7 @@ def sanitize_code(code: str):
     if '<span class="origin"></span>' in code:
         code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
         
-    # 4. Math Fix (Step 2 Secret Code)
+    # 4. Math Fix (Step 2 Secret Code) - Remove hallucinated "7919" logic
     if "7919" in code:
         code = code.replace("7919", "1").replace("12345", "0").replace("% 100000000", "")
         
@@ -71,41 +71,34 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     
     SCENARIO DETECTOR (Check which applies):
     
-    **A. SIMPLE PLACEHOLDER:**
-       - If sample says "answer": "anything" (or similar), STOP.
-       - WRITE ONLY: `solution = "anything you want"`
+    **A. JS LOGIC / SECRET CODE:**
+       - **CRITICAL:** The default algorithm for this course is **SHA-1** (not SHA-256).
+       - Check "IMPORTED FILE" (utils.js).
+       - If utils.js uses `sha1` -> Use `hashlib.sha1(email.encode()).hexdigest()`.
+       - If utils.js uses `sha256` -> Use `hashlib.sha256`.
+       - If utils.js logic is `parseInt(hash.substring(0,4), 16)` -> Do exactly that.
+       - **DEFAULT:** If unsure, use **SHA-1**. `solution = hashlib.sha1(email.encode()).hexdigest()`.
     
-    **B. COMMANDS (Git / UV):**
-       - If asked to craft a command string.
+    **B. SIMPLE PLACEHOLDER:**
+       - If sample says "answer": "anything", WRITE ONLY: `solution = "anything you want"`
+    
+    **C. COMMANDS (Git / UV):**
        - `solution = "the string"`.
     
-    **C. VISUALIZATION (Diff / Heatmap):**
-       - Task: "Compare images" or "Most frequent color".
+    **D. VISUALIZATION (Diff / Heatmap):**
        - Logic: Decode Base64 -> PIL Image -> Analyze pixels.
        - Diff: Count pixels where `p1 != p2`.
        - Heatmap: `Counter(img.getdata()).most_common(1)`.
        - `solution = "#hexcolor"` or `int(count)`.
     
-    **D. MATH / OPTIMIZATION (Shards / Rate):**
-       - Task: "Read constraints from json".
+    **E. MATH / OPTIMIZATION (Shards / Rate):**
        - Logic: Parse JSON. Write Python loop to find optimal values.
     
-    **E. DATA ANALYSIS (F1 / Logs / CSV / Invoice):**
-       - **F1:** Use `sklearn.metrics` or manual formula. `solution = {{...}}`.
+    **F. DATA ANALYSIS (F1 / Logs / CSV / Invoice):**
+       - **F1:** Use `sklearn.metrics`. `solution = {{...}}`.
        - **Logs (ZIP):** Decode Base64 -> Unzip -> Sum bytes.
        - **Orders (CSV):** Parse CSV -> Pandas -> Filter -> JSON list.
        - **Invoice (PDF):** Extract text -> Regex -> Sum numbers.
-    
-    **F. EMBEDDINGS (Email Length):**
-       - Task: "Choose pair based on email length".
-       - Logic: `if len(email) % 2 == 0: ...`
-    
-    **G. JS LOGIC (Secret Code):**
-       - Implement JS logic (`emailNumber`) 1:1 using `hashlib`.
-       - `solution = calculated_value`
-    
-    **H. AUDIO TRANSCRIPT:**
-       - If "AUDIO TRANSCRIPT" exists, apply the math rule to the CSV.
 
     **OUTPUT:**
     - Return ONLY the Python code block.
