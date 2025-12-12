@@ -12,8 +12,6 @@ app = FastAPI()
 async def run_quiz_process(start_url: str):
     current_url = start_url
     step_count = 0
-    
-    # 1. Determine the Base Domain (Live Server)
     base_domain = "https://tds-llm-analysis.s-anand.net"
     if "localhost" in start_url or "127.0.0.1" in start_url:
         base_domain = "http://127.0.0.1:8787"
@@ -27,7 +25,6 @@ async def run_quiz_process(start_url: str):
             print(f"Failed to fetch page: {e}")
             break
         
-        # 2. Analyze the Task
         task_data = analyze_task(decoded_text)
         if not task_data:
             print("Failed to parse task.")
@@ -35,33 +32,24 @@ async def run_quiz_process(start_url: str):
             
         print(f"Task Found: {task_data}")
         
-        # 3. Download Files (Fixing 'example.com' traps)
         file_summary = "No files."
         if task_data.get("file_url"):
             raw_f_url = task_data["file_url"]
-            # Remove HTML tags if any
             f_url = re.sub(r'<[^>]+>', '', raw_f_url).strip()
             
             if f_url:
-                # TRAP FIX: If the LLM extracts 'example.com', force the real domain
                 if "example.com" in f_url:
                     f_url = f_url.replace("https://example.com", base_domain).replace("http://example.com", base_domain)
-                
-                # Handle relative URLs
                 if not f_url.startswith("http"): 
                     f_url = urljoin(base_domain, f_url)
-                    
                 print(f"Downloading file: {f_url}")
                 file_summary = parse_file_content(f_url)
 
-        # 4. TARGET URL IS ALWAYS /submit
-        # We ignore what the LLM thinks the submit URL is. 
-        # The documentation confirms everything goes to /submit.
         submit_url = urljoin(base_domain, "/submit")
 
-        # 5. Solve & Submit
         attempts = 0
         success = False
+        last_response_json = {}  # Store the last response to check for "pity URLs"
         
         while attempts < 3 and not success:
             answer = solve_question(task_data["question"], file_summary, decoded_text)
@@ -70,8 +58,8 @@ async def run_quiz_process(start_url: str):
             payload = {
                 "email": STUDENT_EMAIL,
                 "secret": STUDENT_SECRET,
-                "url": current_url,  # The Problem URL
-                "answer": answer     # The Solution
+                "url": current_url,
+                "answer": answer
             }
             
             try:
@@ -83,23 +71,13 @@ async def run_quiz_process(start_url: str):
                         print(f"Server Error {resp.status_code}: {resp.text[:200]}")
                     
                     try:
-                        result = resp.json()
-                        print(f"Submission Result: {result}")
+                        last_response_json = resp.json()
+                        print(f"Submission Result: {last_response_json}")
                         
-                        if result.get("correct"):
+                        if last_response_json.get("correct"):
                             success = True
-                            next_url = result.get("url")
-                            if next_url:
-                                # Ensure next_url is absolute
-                                if not next_url.startswith("http"):
-                                    next_url = urljoin(base_domain, next_url)
-                                current_url = next_url
-                                step_count += 1
-                            else:
-                                print("Quiz Completed Successfully!")
-                                return
                         else:
-                            print(f"Wrong Answer. Retrying... Reason: {result.get('reason')}")
+                            print(f"Wrong Answer. Retrying... Reason: {last_response_json.get('reason')}")
                             attempts += 1
                             await asyncio.sleep(1)
                     except:
@@ -110,8 +88,20 @@ async def run_quiz_process(start_url: str):
                 print(f"Submission failed: {e}")
                 attempts += 1
         
-        if not success:
-            print("Failed step after 3 attempts.")
+        # --- NEW LOGIC: Proceed if we have a URL, even if we failed ---
+        next_url = last_response_json.get("url")
+        
+        if success and next_url:
+            if not next_url.startswith("http"): next_url = urljoin(base_domain, next_url)
+            current_url = next_url
+            step_count += 1
+        elif not success and next_url:
+            print(">>> FAILED 3 attempts, but server provided a NEXT URL. Proceeding anyway! <<<")
+            if not next_url.startswith("http"): next_url = urljoin(base_domain, next_url)
+            current_url = next_url
+            step_count += 1
+        else:
+            print("Failed step after 3 attempts and no next URL provided.")
             break
 
 @app.post("/")
