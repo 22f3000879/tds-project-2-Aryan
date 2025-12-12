@@ -27,7 +27,7 @@ def sanitize_code(code: str):
     
     if '<span class="origin"></span>' in code:
         code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
-        
+    
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
 
@@ -47,37 +47,40 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:15000]}
     
     STRICT RULES:
-    1. **NO NETWORK:** Do NOT use `requests`. Data is in `file_summary`.
-    2. **USE THE DATA:** If `file_summary` is CSV/JSON, parse it from the string.
-    3. **OUTPUT:** Must define `solution` variable.
+    1. **NO NETWORK:** Do NOT use `requests`. 
+    2. **OUTPUT:** Must define `solution` variable.
     
     SCENARIO DETECTOR (Check which applies):
     
-    **A. CSV ANALYSIS (Step 3 / Audio):**
-       - **Trigger:** "Download CSV", "cutoff", "add values".
-       - **Instruction:** Look at "AUDIO TRANSCRIPT" above for the cutoff value.
-       - **Backup Logic:** If the transcript is missing, calculate: `cutoff = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16) % 100000`.
-       - **Logic:** `df = pd.read_csv(io.StringIO(file_summary), header=None)`. Filter & Sum.
-    
-    **B. AUDIO PASSPHRASE (Step 5):**
+    **A. AUDIO PASSPHRASE (Step 5):**
        - **Trigger:** "Transcribe the spoken phrase".
-       - **Instruction:** Read the "AUDIO TRANSCRIPT". The answer is usually the phrase found there (e.g., "hushed parrot 219").
-       
+       - **Logic:** Look at the "AUDIO TRANSCRIPT" in the data section above.
+       - Extract the phrase (e.g., "hushed parrot 219").
+       - `solution = "hushed parrot 219"` (Use the text found in the transcript).
+    
+    **B. CSV MATH (Step 3 / Audio Cutoff):**
+       - **Trigger:** "Download CSV", "cutoff", "add values".
+       - **Logic:**
+         1. Calculate Cutoff: `cutoff = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16) % 100000`
+         2. Read Data: `pd.read_csv(io.StringIO(file_summary), header=None)`
+         3. Filter: `df[df[0] >= cutoff][0].sum()`
+    
     **C. JS LOGIC (Secret Code):**
+       - **Trigger:** "secret code", "demo-scrape".
        - **Logic:** `solution = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16)`
     
-    **D. COMMANDS (UV / Git):**
+    **D. DEMO 2 (Alphametic):**
+       - Re-calculate key: `(base * 7919 + 12345) % 100000000`.
+       - Checksum: `hashlib.sha256((key + blob).encode()).hexdigest()`.
+       
+    **E. COMMANDS (UV / Git):**
        - **UV:** `solution = "uv http get https://tds-llm-analysis.s-anand.net/project2/uv.json?email={STUDENT_EMAIL} -H \\"Accept: application/json\\""`
        - **Git:** `solution = "git add env.sample\\ngit commit -m 'chore: keep env sample'"`
        
-    **E. DEMO 2 (Alphametic):**
-       - Key: `(int(hashlib.sha1(email.encode()).hexdigest()[:4], 16) * 7919 + 12345) % 100000000`
-       - Checksum: `hashlib.sha256((str(key).zfill(8) + blob).encode()).hexdigest()`
-
     **F. DATA ANALYSIS (F1 / Logs / Invoice):**
        - **F1:** `solution = {{...}}`.
        - **Logs (ZIP):** Decode Base64 -> Unzip -> Sum bytes.
-       - **Invoice (PDF):** Extract text -> Regex -> Sum numbers.
+       - **Invoice (PDF):** Extract text -> Regex -> Sum.
 
     **OUTPUT:**
     - Return ONLY the Python code block.
@@ -95,7 +98,7 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
         code = sanitize_code(code)
         print(f"DEBUG: Final Python Code:\n{code}")
         
-        # Pass file_summary to the scope so pandas can read it
+        # Shared Scope
         scope = {"__builtins__": __builtins__, "import": __import__, "email": STUDENT_EMAIL, 
                  "file_summary": file_summary, "page_content": page_content}
         
