@@ -22,20 +22,17 @@ def analyze_task(decoded_html: str):
     except: return None
 
 def sanitize_code(code: str):
-    # 1. Allow requests (Needed for GitHub API task), but generally discourage it via prompt.
-    # We NO LONGER remove 'import requests' aggressively.
-    
+    code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # 2. Fix URLs for Live Server
+    # Fix URLs for Live Server
     if '<span class="origin"></span>' in code:
         code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
     
-    # 3. Legacy Logic
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
     
-    # 4. Fix Pandas Hallucination (Critical for Step 7)
+    # CRITICAL FIX for Step 7
     if "pd.compat" in code:
         code = code.replace("pd.compat.StringIO", "io.StringIO")
 
@@ -55,48 +52,49 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:15000]}
     
     STRICT RULES:
-    1. **DATA:** The variable `file_summary` contains the REAL content of the downloaded file. 
-       - USE `io.StringIO(file_summary)` to read it. 
-       - DO NOT create fake variables like `csv_data = "..."`.
-    2. **NETWORK:** - **Default:** Do NOT use `requests`. 
-       - **Exception:** If the task explicitly asks to query an API (e.g. GitHub), you MUST use `requests.get()`.
-    3. **OUTPUT:** Must define `solution` variable.
+    1. **NO NETWORK:** Do NOT use `requests`. 
+    2. **OUTPUT:** Must define `solution` variable.
     
     SCENARIO DETECTOR (Check which applies - HIGHEST PRIORITY FIRST):
     
-    **PRIORITY 1: GITHUB API (Step 8)**
-       - **Trigger:** "GitHub API", "gh-tree", "/git/trees".
+    **PRIORITY 1: LOGS (Step 9 - ZIP)**
+       - **Trigger:** "Download /project2/logs.zip", "sum bytes".
        - **Logic:**
-         1. Parse the JSON in `file_summary`.
-         2. Construct URL: `https://api.github.com/repos/{{owner}}/{{repo}}/git/trees/{{sha}}?recursive=1`
-         3. `resp = requests.get(url).json()`
-         4. Count items where `path` starts with `pathPrefix` AND ends with `.md`.
-         5. `solution = count + (len(email) % 2)`
+         1. `z = zipfile.ZipFile(io.BytesIO(base64.b64decode(file_summary)))`
+         2. `fname = z.namelist()[0]` (Get the actual filename dynamically!)
+         3. `df = pd.read_json(z.open(fname), lines=True)`
+         4. Filter `df['event'] == 'download'` and sum `df['bytes']`.
+         5. `solution = int(sum_val + (len(email) % 5))`
     
-    **PRIORITY 2: CSV CLEANING (Step 7)**
+    **PRIORITY 2: INVOICE (Step 10 - PDF)**
+       - **Trigger:** "Invoice", "sum(Quantity * UnitPrice)".
+       - **Logic:** **DO NOT USE PANDAS.** Use Regex to find numbers in the text.
+         1. `items = re.findall(r'(\d+)\s+(\d+\.\d+)', file_summary)` (Matches: int Quantity ... float Price)
+         2. Loop through matches: `total += int(qty) * float(price)`
+         3. `solution = str(round(total, 2))` (or float).
+    
+    **PRIORITY 3: CSV CLEANING (Step 7)**
        - **Trigger:** "Normalize to JSON", "messy.csv".
        - **Logic:** 1. `df = pd.read_csv(io.StringIO(file_summary))`
          2. Clean keys: `df.columns = [c.strip().lower() for c in df.columns]`
          3. Clean dates: `pd.to_datetime(df['joined'], format='mixed').dt.strftime('%Y-%m-%d')`
          4. Sort by `id` ascending.
          5. `solution = df.to_dict(orient='records')`
-
-    **PRIORITY 3: AUDIO PASSPHRASE (Step 5)**
+         
+    **PRIORITY 4: AUDIO PASSPHRASE (Step 5)**
        - **Trigger:** "Transcribe", "spoken phrase".
-       - **Logic:** Copy text from "AUDIO TRANSCRIPT" in data section. `solution = "text"`
+       - **Logic:** `solution = "text extracted from AUDIO TRANSCRIPT above"`
     
-    **PRIORITY 4: CSV MATH (Step 3)**
+    **PRIORITY 5: CSV MATH (Step 3)**
        - **Trigger:** "Download CSV", "cutoff".
        - **Logic:** `cutoff = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16) % 100000`.
        - `df = pd.read_csv(io.StringIO(file_summary), header=None)`. Filter & Sum.
     
-    **PRIORITY 5: DEMO 2 (Alphametic)**
-       - **Trigger:** "ALPHAMETIC", "F O R K".
-       - **Logic:** `base = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16)`.
-       - `key = str((base * 7919 + 12345) % 100000000).zfill(8)`.
-       - Checksum? `hashlib.sha256((key + blob).encode()).hexdigest()[:12]`. Find `blob` in page text!
+    **PRIORITY 6: DEMO 2 (Alphametic)**
+       - Re-calculate key: `(base * 7919 + 12345) % 100000000`.
+       - Checksum: `hashlib.sha256((key + blob).encode()).hexdigest()`.
        
-    **PRIORITY 6: COMMANDS (UV / Git)**
+    **PRIORITY 7: COMMANDS (UV / Git)**
        - **UV:** `solution = "uv http get https://tds-llm-analysis.s-anand.net/project2/uv.json?email={STUDENT_EMAIL} -H \\"Accept: application/json\\""`
        - **Git:** `solution = "git add env.sample\\ngit commit -m 'chore: keep env sample'"`
 
