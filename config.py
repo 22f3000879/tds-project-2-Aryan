@@ -8,4 +8,4 @@ STUDENT_SECRET = "22f3000879"
 # --- OPENAI SETTINGS ---
 # Ensure you add this Key in Render's "Environment Variables" section
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
-OPENAI_MODEL = "gpt-5.2"
+OPENAI_MODEL = "gpt-5.1"
