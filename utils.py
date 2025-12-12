@@ -11,7 +11,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 def transcribe_audio(audio_url):
     try:
-        print(f"DEBUG: Transcribing audio from {audio_url}", flush=True)
+        print(f"DEBUG: Transcribing audio from {audio_url}...", flush=True)
         response = httpx.get(audio_url, timeout=30)
         response.raise_for_status()
         audio_file = BytesIO(response.content)
@@ -25,7 +25,7 @@ def transcribe_audio(audio_url):
         return ""
 
 def try_decode_base64(text: str):
-    # Decodes the hidden instructions in legacy Step 2
+    # Decodes hidden 'atob' instructions
     candidates = re.findall(r'[`\'"]([A-Za-z0-9+/=\s]{100,})[`\'"]', text)
     if candidates:
         encoded = max(candidates, key=len)
@@ -37,7 +37,7 @@ def try_decode_base64(text: str):
 
 def fetch_external_resources(base_url, html_content):
     assets = ""
-    # Find all relevant links
+    # Find all relevant links (Images, JS, JSON, CSV, ZIP, Audio)
     patterns = [
         r'src=["\']([^"\']+\.(?:js|png|jpg|jpeg|opus|mp3|wav|zip))["\']',
         r'href=["\']([^"\']+\.(?:js|png|jpg|jpeg|opus|mp3|wav|csv|json|yaml|md|zip|pdf))["\']'
@@ -70,8 +70,7 @@ def fetch_external_resources(base_url, html_content):
                     reader = PdfReader(BytesIO(resp.content))
                     text = "\n".join([p.extract_text() for p in reader.pages])
                     assets += f"\n--- PDF TEXT: {filename} ---\n{text}\n"
-                except:
-                    assets += f"\n--- PDF ERROR: Could not parse {filename}\n"
+                except: pass
 
             # 4. TEXT DATA (JS, JSON, CSV, MD, YAML)
             else:
@@ -95,7 +94,6 @@ async def fetch_and_decode_page(url: str):
         return try_decode_base64(resp.text + extras) + "\nRaw Extras:\n" + extras
 
 def parse_file_content(file_url: str):
-    # Fallback for direct links found by LLM logic
     try:
         if "$EMAIL" in file_url: file_url = file_url.replace("$EMAIL", STUDENT_EMAIL)
         
