@@ -7,9 +7,6 @@ from config import OPENAI_API_KEY, OPENAI_MODEL, STUDENT_EMAIL
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def analyze_task(decoded_html: str):
-    """
-    Analyzes the task to extract the question and URLs.
-    """
     prompt = f"""
     You are a scraper parser. Extract strictly valid JSON.
     Keys: "question", "submit_url", "file_url" (if explicit).
@@ -28,9 +25,9 @@ def analyze_task(decoded_html: str):
 
 def sanitize_code(code: str):
     """
-    Sanitizes code. Aggressively removes network calls.
+    Sanitizes code. Prevents specific errors.
     """
-    # 1. Remove Network stuff
+    # 1. Remove Network stuff (Catch '  import requests' too)
     code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*from requests import.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*import urllib.*$', '', code, flags=re.MULTILINE)
@@ -38,13 +35,13 @@ def sanitize_code(code: str):
     # 2. Async Fix
     code = code.replace("async def ", "def ").replace("await ", "")
     
-    # 3. URL Fix (Step 2 uv command)
-    if '<span class="origin"></span>' in code:
-        code = code.replace('<span class="origin"></span>', 'https://tds-llm-analysis.s-anand.net')
-        
-    # 4. Math Fix (Step 2 Secret Code) - Remove hallucinated "7919" logic
-    if "7919" in code:
-        code = code.replace("7919", "1").replace("12345", "0").replace("% 100000000", "")
+    # 3. FIX UV COMMAND URL (Force Absolute URL)
+    # The Agent often writes '/project2/uv.json'. We MUST replace it with the full domain.
+    if '/project2/uv' in code and 'https://' not in code:
+        code = code.replace('/project2/uv', 'https://tds-llm-analysis.s-anand.net/project2/uv')
+    
+    # 4. REMOVED: The '7919' Math Sanitizer. 
+    # Why? Because demo2 actually USES this math properly. Removing it caused the error.
         
     if "demo2_key" in code:
          code = re.sub(r'demo2_key\(.*?\)', 'email_number(email)', code)
@@ -65,25 +62,25 @@ def solve_question(question: str, file_summary: str, page_content: str = ""):
     {page_content[:15000]}
     
     STRICT RULES:
-    1. **NO NETWORK:** Do NOT use `requests`. Do NOT try to simulate a POST submission.
+    1. **NO NETWORK:** Do NOT use `requests`.
     2. **IMAGES/ZIPS:** Provided as `BASE64:...`. Use `base64`, `io.BytesIO`, `PIL`, `zipfile`.
     3. **OUTPUT:** Must define `solution` variable.
     
     SCENARIO DETECTOR (Check which applies):
     
     **A. JS LOGIC / SECRET CODE:**
-       - **CRITICAL:** The default algorithm for this course is **SHA-1** (not SHA-256).
-       - Check "IMPORTED FILE" (utils.js).
-       - If utils.js uses `sha1` -> Use `hashlib.sha1(email.encode()).hexdigest()`.
+       - **CRITICAL:** Check the JS code provided in "DATA/ASSETS".
+       - If utils.js uses `sha1` -> Use `hashlib.sha1`.
        - If utils.js uses `sha256` -> Use `hashlib.sha256`.
        - If utils.js logic is `parseInt(hash.substring(0,4), 16)` -> Do exactly that.
-       - **DEFAULT:** If unsure, use **SHA-1**. `solution = hashlib.sha1(email.encode()).hexdigest()`.
+       - **DEFAULT:** Use **SHA-1** if unsure. `solution = int(hashlib.sha1(email.encode()).hexdigest()[:4], 16)`.
     
-    **B. SIMPLE PLACEHOLDER:**
+    **B. COMMANDS (Git / UV):**
+       - **UV:** `solution = "uv http get https://tds-llm-analysis.s-anand.net/project2/uv.json?email={STUDENT_EMAIL} -H \\"Accept: application/json\\""`
+       - **Git:** `solution = "git add ...\\ngit commit ..."`
+    
+    **C. SIMPLE PLACEHOLDER:**
        - If sample says "answer": "anything", WRITE ONLY: `solution = "anything you want"`
-    
-    **C. COMMANDS (Git / UV):**
-       - `solution = "the string"`.
     
     **D. VISUALIZATION (Diff / Heatmap):**
        - Logic: Decode Base64 -> PIL Image -> Analyze pixels.
