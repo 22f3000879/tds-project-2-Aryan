@@ -9,26 +9,25 @@ from agent import analyze_task, solve_question
 
 app = FastAPI()
 
-def clean_extracted_url(url: str):
-    if not url: return None
-    clean = re.sub(r'<[^>]+>', '', url)
-    return clean.strip()
-
 async def run_quiz_process(start_url: str):
     current_url = start_url
     step_count = 0
     
+    # 1. Determine the Base Domain (Live Server)
+    base_domain = "https://tds-llm-analysis.s-anand.net"
+    if "localhost" in start_url or "127.0.0.1" in start_url:
+        base_domain = "http://127.0.0.1:8787"
+    
     while current_url and step_count < 15:
         print(f"\n--- STEP {step_count + 1} processing {current_url} ---")
         
-        # 1. Fetch & Decode
         try:
             decoded_text = await fetch_and_decode_page(current_url)
         except Exception as e:
             print(f"Failed to fetch page: {e}")
             break
         
-        # 2. Parse Task
+        # 2. Analyze the Task
         task_data = analyze_task(decoded_text)
         if not task_data:
             print("Failed to parse task.")
@@ -36,32 +35,31 @@ async def run_quiz_process(start_url: str):
             
         print(f"Task Found: {task_data}")
         
-        # 3. Download Files
+        # 3. Download Files (Fixing 'example.com' traps)
         file_summary = "No files."
         if task_data.get("file_url"):
             raw_f_url = task_data["file_url"]
-            f_url = clean_extracted_url(raw_f_url)
+            # Remove HTML tags if any
+            f_url = re.sub(r'<[^>]+>', '', raw_f_url).strip()
+            
             if f_url:
+                # TRAP FIX: If the LLM extracts 'example.com', force the real domain
+                if "example.com" in f_url:
+                    f_url = f_url.replace("https://example.com", base_domain).replace("http://example.com", base_domain)
+                
+                # Handle relative URLs
                 if not f_url.startswith("http"): 
-                    f_url = urljoin(current_url, f_url)
+                    f_url = urljoin(base_domain, f_url)
+                    
                 print(f"Downloading file: {f_url}")
                 file_summary = parse_file_content(f_url)
 
-        # 4. Determine Submit URL (CRITICAL FIX)
-        raw_submit_url = task_data.get("submit_url")
-        submit_url = clean_extracted_url(raw_submit_url)
-        
-        # Logic: If submit_url is missing OR looks like the current page, default to /submit
-        if not submit_url or submit_url in current_url or "project2-uv" in submit_url:
-            print("DEBUG: Submit URL looks wrong or missing. Defaulting to /submit")
-            submit_url = "/submit"
-            
-        if not submit_url.startswith("http"): 
-            # Ensure we use the base domain from the current_url
-            base_domain = "/".join(current_url.split("/")[:3]) # https://domain.com
-            submit_url = urljoin(base_domain, submit_url)
+        # 4. TARGET URL IS ALWAYS /submit
+        # We ignore what the LLM thinks the submit URL is. 
+        # The documentation confirms everything goes to /submit.
+        submit_url = urljoin(base_domain, "/submit")
 
-        # 5. Solve & Submit (Retry Loop)
+        # 5. Solve & Submit
         attempts = 0
         success = False
         
@@ -72,8 +70,8 @@ async def run_quiz_process(start_url: str):
             payload = {
                 "email": STUDENT_EMAIL,
                 "secret": STUDENT_SECRET,
-                "url": current_url,
-                "answer": answer
+                "url": current_url,  # The Problem URL
+                "answer": answer     # The Solution
             }
             
             try:
@@ -81,7 +79,6 @@ async def run_quiz_process(start_url: str):
                 async with httpx.AsyncClient() as client:
                     resp = await client.post(submit_url, json=payload, timeout=30)
                     
-                    # --- DEBUGGING RESPONSE ---
                     if resp.status_code != 200:
                         print(f"Server Error {resp.status_code}: {resp.text[:200]}")
                     
@@ -91,8 +88,12 @@ async def run_quiz_process(start_url: str):
                         
                         if result.get("correct"):
                             success = True
-                            if result.get("url"):
-                                current_url = result["url"]
+                            next_url = result.get("url")
+                            if next_url:
+                                # Ensure next_url is absolute
+                                if not next_url.startswith("http"):
+                                    next_url = urljoin(base_domain, next_url)
+                                current_url = next_url
                                 step_count += 1
                             else:
                                 print("Quiz Completed Successfully!")
@@ -102,7 +103,7 @@ async def run_quiz_process(start_url: str):
                             attempts += 1
                             await asyncio.sleep(1)
                     except:
-                        print(f"Failed to parse JSON response. Raw text: {resp.text[:200]}")
+                        print(f"Failed to parse JSON. Raw: {resp.text[:100]}")
                         attempts += 1
                         
             except Exception as e:
