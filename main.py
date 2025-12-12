@@ -49,10 +49,12 @@ async def run_quiz_process(start_url: str):
 
         attempts = 0
         success = False
-        last_response_json = {}  # Store the last response to check for "pity URLs"
+        feedback = ""  # New: Stores server error message
+        last_result = {}
         
         while attempts < 5 and not success:
-            answer = solve_question(task_data["question"], file_summary, decoded_text)
+            # Pass the feedback to the agent so it can correct mistakes
+            answer = solve_question(task_data["question"], file_summary, decoded_text, feedback)
             print(f"Calculated Answer (Attempt {attempts+1}): {answer}")
             
             payload = {
@@ -67,17 +69,17 @@ async def run_quiz_process(start_url: str):
                 async with httpx.AsyncClient() as client:
                     resp = await client.post(submit_url, json=payload, timeout=30)
                     
-                    if resp.status_code != 200:
-                        print(f"Server Error {resp.status_code}: {resp.text[:200]}")
-                    
                     try:
-                        last_response_json = resp.json()
-                        print(f"Submission Result: {last_response_json}")
+                        last_result = resp.json()
+                        print(f"Submission Result: {last_result}")
                         
-                        if last_response_json.get("correct"):
+                        if last_result.get("correct"):
                             success = True
                         else:
-                            print(f"Wrong Answer. Retrying... Reason: {last_response_json.get('reason')}")
+                            # CAPTURE THE REASON FOR THE NEXT TRY
+                            reason = last_result.get('reason', 'Unknown Error')
+                            print(f"Wrong Answer. Retrying... Reason: {reason}")
+                            feedback = f"Previous attempt failed. Server said: {reason}. Fix your code."
                             attempts += 1
                             await asyncio.sleep(1)
                     except:
@@ -88,9 +90,8 @@ async def run_quiz_process(start_url: str):
                 print(f"Submission failed: {e}")
                 attempts += 1
         
-        # --- NEW LOGIC: Proceed if we have a URL, even if we failed ---
-        next_url = last_response_json.get("url")
-        
+        # Fail-Forward: If we failed but got a URL, proceed.
+        next_url = last_result.get("url")
         if success and next_url:
             if not next_url.startswith("http"): next_url = urljoin(base_domain, next_url)
             current_url = next_url
