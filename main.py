@@ -51,7 +51,7 @@ async def run_quiz_process(start_url: str):
         success = False
         last_response_json = {}  # Store the last response to check for "pity URLs"
         
-        while attempts < 3 and not success:
+        while attempts < 5 and not success:
             answer = solve_question(task_data["question"], file_summary, decoded_text)
             print(f"Calculated Answer (Attempt {attempts+1}): {answer}")
             
@@ -101,7 +101,7 @@ async def run_quiz_process(start_url: str):
             current_url = next_url
             step_count += 1
         else:
-            print("Failed step after 3 attempts and no next URL provided.")
+            print("Failed step after 5 attempts and no next URL provided.")
             break
 
 @app.post("/")
