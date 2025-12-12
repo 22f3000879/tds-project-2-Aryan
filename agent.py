@@ -30,7 +30,7 @@ def sanitize_code(code: str):
     """
     Sanitizes code. Aggressively removes network calls.
     """
-    # 1. Remove Network stuff (Improved Regex to catch '  import requests')
+    # 1. Remove Network stuff (Catch '  import requests' too)
     code = re.sub(r'^\s*import requests.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*from requests import.*$', '', code, flags=re.MULTILINE)
     code = re.sub(r'^\s*import urllib.*$', '', code, flags=re.MULTILINE)
