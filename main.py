@@ -49,11 +49,10 @@ async def run_quiz_process(start_url: str):
 
         attempts = 0
         success = False
-        feedback = ""  # New: Stores server error message
+        feedback = ""  
         last_result = {}
         
         while attempts < 5 and not success:
-            # Pass the feedback to the agent so it can correct mistakes
             answer = solve_question(task_data["question"], file_summary, decoded_text, feedback)
             print(f"Calculated Answer (Attempt {attempts+1}): {answer}")
             
@@ -73,15 +72,19 @@ async def run_quiz_process(start_url: str):
                         last_result = resp.json()
                         print(f"Submission Result: {last_result}")
                         
-                        if last_result.get("correct"):
+                        # --- MODIFIED LOGIC START ---
+                        # If correct OR if the server gave us a Next URL (even if wrong/delayed), we proceed.
+                        if last_result.get("correct") or last_result.get("url"):
+                            print(">>> Success or Next URL received. Proceeding...")
                             success = True
                         else:
-                            # CAPTURE THE REASON FOR THE NEXT TRY
                             reason = last_result.get('reason', 'Unknown Error')
                             print(f"Wrong Answer. Retrying... Reason: {reason}")
                             feedback = f"Previous attempt failed. Server said: {reason}. Fix your code."
                             attempts += 1
                             await asyncio.sleep(1)
+                        # --- MODIFIED LOGIC END ---
+                        
                     except:
                         print(f"Failed to parse JSON. Raw: {resp.text[:100]}")
                         attempts += 1
@@ -90,14 +93,9 @@ async def run_quiz_process(start_url: str):
                 print(f"Submission failed: {e}")
                 attempts += 1
         
-        # Fail-Forward: If we failed but got a URL, proceed.
+        # Move to next URL
         next_url = last_result.get("url")
         if success and next_url:
-            if not next_url.startswith("http"): next_url = urljoin(base_domain, next_url)
-            current_url = next_url
-            step_count += 1
-        elif not success and next_url:
-            print(">>> FAILED 3 attempts, but server provided a NEXT URL. Proceeding anyway! <<<")
             if not next_url.startswith("http"): next_url = urljoin(base_domain, next_url)
             current_url = next_url
             step_count += 1
