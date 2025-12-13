@@ -2,7 +2,7 @@ import json
 import re
 import traceback
 import requests
-import io
+import io  # Imported io
 from openai import OpenAI
 from config import OPENAI_API_KEY, OPENAI_MODEL, STUDENT_EMAIL
 
@@ -47,14 +47,14 @@ def solve_question(question: str, file_summary: str, page_content: str = "", fee
     Student Email: "{STUDENT_EMAIL}"
     
     --- DATA / ASSETS ---
-    (The variable `file_summary` ALREADY contains the downloaded data. USE IT.)
+    {file_summary}
     
     --- PAGE INSTRUCTIONS ---
     {page_content[:15000]}
     
     --- CRITICAL RULES ---
-    1. **USE EXISTING VARIABLES:** Do NOT define `file_summary = "..."`. Use `json.loads(file_summary)` or `pd.read_csv(io.StringIO(file_summary))`.
-    2. **REAL DATA ONLY:** Never use fake numbers like "10000" or "example.com".
+    1. **DATA CLEANING:** The `file_summary` often starts with "FILE CONTENT:\\n". **ALWAYS** do `file_summary.replace("FILE CONTENT:\\n", "")` before parsing JSON, CSV, or Base64.
+    2. **REAL DATA ONLY:** You must process the actual data provided. Never use fake numbers.
     3. **NO SUBMISSION:** Do NOT use `requests.post` to submit. ONLY define `solution`.
     4. **OUTPUT:** Return ONLY the Python code block.
     
@@ -62,75 +62,59 @@ def solve_question(question: str, file_summary: str, page_content: str = "", fee
     
     **PRIORITY 1: FASTAPI ROUTE (Step 22)**
        - **Trigger:** "FastAPI route", "/submit", "name (string) and age (integer)".
-       - **Action:** Write a clean function using query parameters to satisfy the checker.
+       - **Action:** Write a clean function using query parameters (NOT Pydantic).
        - **Code:**
          ```python
          solution = \"\"\"from fastapi import FastAPI
          app = FastAPI()
-         
          @app.post("/submit")
          def submit(name: str, age: int):
              return {{"status": "ok", "message": "User registered"}}
          \"\"\"
          ```
 
-    **PRIORITY 2: DEMO SCRAPE (Step 2)**
-       - **Trigger:** "demo-scrape", "secret code".
+    **PRIORITY 2: CONFIG API KEY (Step 4)**
+       - **Trigger:** "config.json", "api_key".
+       - **Action:** 1. Clean data: `raw = file_summary.replace("FILE CONTENT:\\n", "").strip()`
+         2. Parse: `data = json.loads(raw)`
+         3. Solution: `solution = data['api_key']`
+
+    **PRIORITY 3: BASE64 DECODE (Step 10)**
+       - **Trigger:** "Decode the given base64", "decoded text".
+       - **Action:** 1. Clean data: `b64_str = file_summary.replace("FILE CONTENT:\\n", "").strip()`
+         2. Decode: `solution = base64.b64decode(b64_str).decode("utf-8").strip()`
+
+    **PRIORITY 4: DEMO SCRAPE (Step 2)** - **Trigger:** "demo-scrape", "secret code".
        - **Action:** 1. Define URL: `url = f"https://tds-llm-analysis.s-anand.net/demo-scrape-data?email={{email}}"`
          2. Fetch: `resp = requests.get(url)`
          3. Extract: `secret = resp.text.strip()`
          4. Solution: `solution = secret`
 
-    **PRIORITY 3: BASE64 DECODE (Step 10)**
-       - **Trigger:** "Decode the given base64 string", "Unicode escape".
-       - **Action:** 1. `import base64`
-         2. Extract string.
-         3. `decoded = base64.b64decode(b64_str).decode("utf-8").strip()`
-         4. `solution = decoded`
-
-    **PRIORITY 4: SHARDS (Step 14 - JSON Logic)**
-       - **Trigger:** "shards", "replicas", "memory_budget".
-       - **Action:** 1. `data = json.loads(file_summary)` (Load the REAL data).
-         2. Loop `s` (1 to `max_shards`) and `r` (min to max replicas).
-         3. Check `total_docs` and `total_mem`.
-         4. `solution = json.dumps({{"shards": s, "replicas": r}})`
-
-    **PRIORITY 5: HEATMAP (Step 6)**
-       - **Trigger:** "heatmap.png", "most frequent RGB".
-       - **Action:** 1. `import io, base64`
-         2. `from PIL import Image`
-         3. `from collections import Counter`
-         4. `img = Image.open(io.BytesIO(base64.b64decode(file_summary)))`
-         5. `pixels = list(img.getdata())`
-         6. `most_common = Counter(pixels).most_common(1)[0][0]`
-         7. `solution = "#{{:02x}}{{:02x}}{{:02x}}".format(*most_common[:3])`
-
-    **PRIORITY 6: GITHUB TREE (Step 8 - API)**
+    **PRIORITY 5: GITHUB TREE (Step 8 - API)**
        - **Trigger:** "GitHub API", "/git/trees", "gh-tree".
        - **Action:** 1. Parse `owner`, `repo`, `sha`, `pathPrefix`, `extension`.
-         2. `requests.get(f"https://api.github.com/repos/{{owner}}/{{repo}}/git/trees/{{sha}}?recursive=1")`.
-         3. Count files matching the prefix and extension.
-         4. `solution = count + (len(email) % 2)`.
+         2. Use `requests.get`.
+         3. `solution = count + (len(email) % 2)`.
     
-    **PRIORITY 7: LOGS (Step 9 - ZIP)**
+    **PRIORITY 6: LOGS (Step 9 - ZIP)**
        - **Trigger:** "Download /project2/logs.zip".
        - **Action:**
-         1. `z = zipfile.ZipFile(io.BytesIO(base64.b64decode(file_summary)))`
-         2. `fname = z.namelist()[0]`
-         3. `df = pd.read_json(z.open(fname), lines=True)`
+         1. Clean base64: `raw = file_summary.replace("BINARY_BASE64:", "").strip()`
+         2. `z = zipfile.ZipFile(io.BytesIO(base64.b64decode(raw)))`
+         3. `df = pd.read_json(z.open(z.namelist()[0]), lines=True)`
          4. `solution = int(df[df['event'] == 'download']['bytes'].sum() + (len(email) % 5))`
     
-    **PRIORITY 8: CSV CLEANING (Step 7)**
+    **PRIORITY 7: CSV CLEANING (Step 7)**
        - **Trigger:** "Normalize to JSON", "messy.csv".
-       - **Action:** 1. `df = pd.read_csv(io.StringIO(file_summary))`
-         2. Clean keys to lower/strip. Fix dates to ISO.
+       - **Action:** 1. `df = pd.read_csv(io.StringIO(file_summary.replace("FILE CONTENT:\\n", "")))`
+         2. Clean keys/dates.
          3. `solution = df.sort_values('id').to_dict(orient='records')`
          
-    **PRIORITY 9: INVOICE (Step 10 - PDF)**
+    **PRIORITY 8: INVOICE (Step 10 - PDF)**
        - **Trigger:** "Invoice", "sum(Quantity * UnitPrice)".
        - **Action:** Regex `re.findall(r'(\d+)\s+(\d+\.\d+)', file_summary)`. Sum products.
     
-    **PRIORITY 10: COMMANDS (UV / Git)**
+    **PRIORITY 9: COMMANDS (UV / Git)**
        - **UV:** `solution = "uv http get https://tds-llm-analysis.s-anand.net/project2/uv.json?email={STUDENT_EMAIL} -H \\"Accept: application/json\\""`
        - **Git:** `solution = "git add env.sample\\ngit commit -m 'chore: keep env sample'"`
 
@@ -159,7 +143,7 @@ def solve_question(question: str, file_summary: str, page_content: str = "", fee
             "page_content": page_content,
             "requests": requests,
             "json": json,
-            "io": io
+            "io": io  # Added io to scope
         }
         
         exec(code, scope, scope)
